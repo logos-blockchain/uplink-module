@@ -57,6 +57,18 @@ pub trait UplinkModule: 'static {
     fn status(&mut self, reference: String) -> String;
     /// Every recorded operation, or one participant's ("" for all).
     fn operations(&mut self, participant: String) -> String;
+
+    /// Syncs the wallet to the tip so new notes are found.
+    fn sync(&mut self) -> String;
+    /// New referrals and credits addressed to the participant.
+    fn notes(&mut self, participant: String) -> String;
+    /// Points claimable now, by batch.
+    fn claimable(&mut self, participant: String) -> String;
+    /// Submits the oldest claimable batch (up to 16 epochs).
+    fn claim(&mut self, reference: String, participant: String) -> String;
+    /// Claims one batch when something is claimable and nothing is pending; call it on every
+    /// poll. Points are never lost by waiting: each epoch pays once, whenever it's claimed.
+    fn auto_claim(&mut self, participant: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -163,6 +175,21 @@ impl UplinkModule for UplinkModuleImpl {
     }
     fn operations(&mut self, participant: String) -> String {
         self.with(|s| Ok(s.operations(&participant)))
+    }
+    fn sync(&mut self) -> String {
+        self.with(|s| s.sync())
+    }
+    fn notes(&mut self, participant: String) -> String {
+        self.with(|s| s.notes(&participant))
+    }
+    fn claimable(&mut self, participant: String) -> String {
+        self.with(|s| s.claimable(&participant))
+    }
+    fn claim(&mut self, reference: String, participant: String) -> String {
+        self.with(|s| s.claim(&reference, &participant))
+    }
+    fn auto_claim(&mut self, participant: String) -> String {
+        self.with(|s| s.auto_claim(&participant))
     }
 }
 

@@ -32,12 +32,17 @@ pub struct ParticipantRecord {
     /// The node this participant enrolled (or is enrolling) with, hex.
     pub node: Option<String>,
     pub terms: Option<TermsAcceptance>,
+    /// Each child's join epoch (hex node → epoch), from its join note. The program keeps it only
+    /// until a claim settles that epoch, so it's remembered here the first time it's seen.
+    #[serde(default)]
+    pub children_since: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum OperationKind {
     Register,
+    Claim,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

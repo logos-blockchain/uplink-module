@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use lee_core::account::AccountId;
-use referral_core::{Instruction, NodeId, ORACLE_ACCOUNT_ID, Registry, State, active_digest, epoch_account};
+use referral_core::{Instruction, NodeId, ORACLE_ACCOUNT_ID, Participant, Referrer, Registry, State, active_digest, epoch_account};
 use serde_json::{Value, json};
 use zeroize::Zeroizing;
 
@@ -120,6 +120,13 @@ impl Clock for FakeClock {
     }
 }
 
+pub(super) struct FakeHistory(String);
+impl History for FakeHistory {
+    fn transactions_by_account(&self, _: &str, offset: u64, _: u64) -> PortResult<String> {
+        Ok(if offset == 0 { self.0.clone() } else { "[]".into() })
+    }
+}
+
 pub(super) fn node_key() -> NodeKey {
     NodeKey::from_secret(&[1; 32])
 }
@@ -205,6 +212,19 @@ impl World {
             .insert(codec::account_hex(&epoch_account(program(), epoch)), account_json(&archived.to_data().into_inner()));
     }
 
+    fn set_participant(&self, participant: Participant) {
+        let data = State::Participant(participant).to_data().into_inner();
+        self.lez.0.borrow_mut().private.get_mut(PARTICIPANT).unwrap().0 = account_json(&data);
+    }
+
+    fn add_note(&self, id: u8, note: State) {
+        self.lez
+            .0
+            .borrow_mut()
+            .private
+            .insert(hex::encode([id; 32]), (account_json(&note.to_data().into_inner()), keys_json(0x11)));
+    }
+
     pub(super) fn sent(&self) -> Vec<(Vec<AccountEntry>, Vec<u8>)> {
         self.lez.0.borrow().sent.clone()
     }
@@ -222,7 +242,31 @@ pub(super) fn accept_terms(service: &mut Service) {
     service.accept_terms(crate::domain::terms::version(), &crate::domain::terms::sha256()).unwrap();
 }
 
+pub(super) fn referrer() -> Referrer {
+    Invitation::from_keys(REFERRER, &keys_json(0x22)).unwrap().referrer_keys().unwrap()
+}
+
+pub(super) fn enrolled(world: &World) -> NodeId {
+    let me = node_key().node();
+    world.set_participant(Participant::new(me, Some(referrer())));
+    me
+}
+
+pub(super) fn referrer_entry() -> AccountEntry {
+    AccountEntry::PrivateForeign { npk: hex::encode([0x22; 32]), vpk: hex::encode([0x22; VPK_LEN]) }
+}
+
+/// An indexer that never answers, like one that isn't running.
+pub(super) struct DeadIndexer(Rc<RefCell<usize>>);
+impl History for DeadIndexer {
+    fn transactions_by_account(&self, _: &str, _: u64, _: u64) -> PortResult<String> {
+        *self.0.borrow_mut() += 1;
+        Err("object_unavailable".into())
+    }
+}
+
 mod activity;
+mod claims;
 mod deployment;
 mod enrol;
 mod participants;

@@ -46,6 +46,8 @@ impl Service {
                 "referrer": me.referrer_node().as_ref().map(codec::node_hex),
                 // Per child, the epochs already settled, as inclusive ranges.
                 "children": me.children.iter().map(|(node, settled)| (codec::node_hex(node), settled.clone())).collect::<std::collections::BTreeMap<_, _>>(),
+                // Per child (adopted or announced), the epoch it joined in, where known.
+                "childrenSince": self.children_since(participant),
                 "rewardBalance": me.reward_balance.to_string(),
             })),
             Err(e) if e.code == "not_registered" => Ok(json!({ "registered": false })),

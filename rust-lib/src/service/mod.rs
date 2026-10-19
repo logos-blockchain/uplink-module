@@ -2,8 +2,10 @@
 //! (`serde_json::Value`) or a `DomainError`; `glue` turns those into the module's replies.
 
 mod activity;
+mod claims;
 mod deployment;
 mod enrol;
+mod notes;
 mod operations;
 mod participants;
 mod registry;
@@ -12,6 +14,8 @@ mod terms;
 
 #[cfg(test)]
 mod tests;
+
+use sha2::{Digest, Sha256};
 
 use crate::domain::program::Binary;
 use crate::domain::{DomainError, Result, codec};
@@ -76,4 +80,14 @@ impl Service {
 /// References are caller-chosen 32-byte hex ids; resubmitting one is idempotent.
 fn reference_id(reference: &str) -> Result<String> {
     codec::bytes32(reference).map(hex::encode)
+}
+
+/// A reference derived from another, for operations one call submits several of.
+fn derived_reference(parts: &[&[u8]]) -> String {
+    let mut hasher = Sha256::new();
+    for part in parts {
+        hasher.update((part.len() as u64).to_le_bytes());
+        hasher.update(part);
+    }
+    hex::encode(hasher.finalize())
 }
