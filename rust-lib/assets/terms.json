@@ -1,0 +1,275 @@
+{
+ "version": 1,
+ "title": "Logos Node Referral Programme",
+ "lastUpdated": "2026-09-04",
+ "source": "Node Referral Programme_T&Cs_draft_20260807",
+ "sections": [
+  {
+   "title": "1. About these Terms",
+   "items": [
+    {
+     "t": "1.1 By participating in the Logos Node Referral Programme (“Node Referral Programme”), you agree that these additional terms and conditions (“Referral T&Cs”) apply to you (also referred to as a “Participant”). If you do not agree to these Referral T&Cs, you must not participate in the Node Referral Programme"
+    },
+    {
+     "t": "1.2 In these Referral T&Cs, whenever we refer to “we”, “our”, “us” (or variations thereof) or IFT, we are referring to IFT Studio Pte. Limited, a company incorporated under the laws of Singapore with registered number 201625575Z, and registered office at 160 Robinson Road, #24-09 Singapore 068914."
+    },
+    {
+     "t": "1.3 These Referral T&Cs are supplementary to the Logos Blockchain Testnet Programme Terms and Conditions (“Logos Blockchain Testnet T&Cs”). For any matter not addressed in these Referral T&Cs, the Logos Blockchain Testnet Programme Terms and Conditions will apply. In the event of any inconsistency or conflict between these Referral T&Cs and the Logos Blockchain Testnet Programme Terms and Conditions, the Referral T&Cs shall prevail if there is such inconsistency or conflict."
+    },
+    {
+     "t": "1.4 If you have specific questions about these Referral T&Cs please contact us at legal@free.technology."
+    }
+   ]
+  },
+  {
+   "title": "2. Introduction to the Node Referral Programme",
+   "items": [
+    {
+     "t": "As part of the continued development of Logos, IFT has established a non-incentivised testnet programme (\"Logos Blockchain Testnet Programme\") to allow Participants to interact with and test a testnet version of the Logos Blockchain and its associated testnet components (\"Logos Blockchain Testnet\") in realistic conditions."
+    },
+    {
+     "t": "In order to further encourage testing of the Logos Blockchain Testnet, IFT has developed the Node Referral Programme, which is a referral programme intended to motivate additional participants to join and test the Logos Blockchain Testnet by operating nodes and referring other participants to also do the same."
+    },
+    {
+     "t": "Participants interact with and make use of a self-hosted, locally run and separate application (the “Referral App”) that runs on Basecamp in order to participate in the Node Referral Programme, which allows Participants the ability to enroll, refer other participants, track their Points, and if eligible, claim any potential rewards."
+    }
+   ]
+  },
+  {
+   "title": "3. Privacy Policy - Node Referral Programme",
+   "items": [
+    {
+     "t": "Your participation in the Node Referral Programme involves a limited collection and use of certain information. This section explains how we handle any personal data that we might collect in connection with your participation in the Node Referral Programme and your use of the Referral App."
+    },
+    {
+     "t": "3.1 Information we process",
+     "h": true
+    },
+    {
+     "t": "We may collect and process the following types of information in connection with your participation in the Node Referral Programme and your use of the Referral App:"
+    },
+    {
+     "t": "(a) Claim-time information: When you claim any potential rewards via the Referral App, we may process your name, country of residence, address, payment information, number of Points you have accrued and any other information we may require to process your claim, assess your eligibility for a potential reward and comply with our legal obligations.",
+     "i": 1
+    },
+    {
+     "t": "(b) Communications: We may process records of your communications with us in connection with the Node Referral Programme.",
+     "i": 1
+    },
+    {
+     "t": "We process this information on the basis of our legitimate interests, namely: (i) administering and operating the Node Referral Programme; and (ii) managing our legal and regulatory risks, including sanctions compliance obligations."
+    },
+    {
+     "t": "We do not (nor does anyone else) collect or store any information or have the ability to reconstruct your full referral tree, see your private keys or backup phrases generated from the Referral App or view or access your detailed, per period activity history."
+    },
+    {
+     "t": "3.2 Other information on the Referral App",
+     "h": true
+    },
+    {
+     "t": "We further note the following in respect of certain functionalities of the Referral App and corresponding information when you use the Referral App:"
+    },
+    {
+     "t": "(a) Aggregate Points: Only the aggregate amount of Points being issued is public and auditable. We do not see any specific Participant’s Points, as those remain encrypted as shielded notes in a Participant’s own account. These are not accessible nor readable by anyone, including IFT. When a Participant makes a claim for a reward, the amount of Points accrued by that Participant becomes known to IFT. This information is required in order for IFT to assess the Participant’s eligibility for a Reward.",
+     "i": 1
+    },
+    {
+     "t": "(b) Referral App Private Keys and Backup Phrase: When you use the Referral App, you will be prompted to generate a private key and a backup phrase for your Referral Account. These keys and backup phrases are generated and then stored locally on your device and no one else, including IFT, is able to access them. Please note that if you lose or forget your private key or backup phrase for your Referral Account, we cannot reconstruct or recover them for you.",
+     "i": 1
+    },
+    {
+     "t": "(c) Referral Tree: The structure of the referral tree (in other words, the full map of who referred whom) is not inspectable nor can it be reconstructed by any person, including IFT.",
+     "i": 1
+    },
+    {
+     "t": "(d) Labels: Any labels or notes you might add to your referrals in the Referral App are stored only on your local device and are not shared with us or with any other participants.",
+     "i": 1
+    },
+    {
+     "t": "3.3 How we use your information",
+     "h": true
+    },
+    {
+     "t": "We use the information above described above for the following purposes:"
+    },
+    {
+     "t": "(a) Administer the Node Referral Programme;",
+     "i": 1
+    },
+    {
+     "t": "(b) Comply with applicable law and regulatory obligations, including sanctions compliance;.",
+     "i": 1
+    },
+    {
+     "t": "(c) Communicate with you concerning your participation in the Node Referral Programme.",
+     "i": 1
+    },
+    {
+     "t": "3.4 Data sharing and disclosure",
+     "h": true
+    },
+    {
+     "t": "We may share the information described above with our affiliates, service providers and advisors who assist us with the administration of the Node Referral Programme, who are subject to security and confidentiality obligations."
+    },
+    {
+     "t": "3.5 Data retention and deletion",
+     "h": true
+    },
+    {
+     "t": "We retain information received from Participants for as long as necessary to administer the Node Referral Programme and to meet our legal and regulatory obligations, including sanctions compliance. Where permitted by law, you may request deletion of such information or exercise any other rights available under applicable data protection law."
+    },
+    {
+     "t": "3.6 Additional information",
+     "h": true
+    },
+    {
+     "t": "If you have any questions about this Privacy Policy, please feel free to contact us at legal@free.technology"
+    }
+   ]
+  },
+  {
+   "title": "4. Eligibility for and participation in the Node Referral Programme",
+   "items": [
+    {
+     "t": "4.1 You may participate in the Node Referral Programme only if you:"
+    },
+    {
+     "t": "(a) are eligible to participate in the Logos Blockchain Testnet under the Logos Blockchain Testnet T&Cs;",
+     "i": 1
+    },
+    {
+     "t": "(b) are not a resident in, organised under the laws of, or otherwise subject to sanctions in any jurisdiction. For the purposes of these Referral T&Cs, “sanctions” is understood to mean economic sanctions, embargoes, or restrictions by the US (OFAC, State Dept.), UNSC, EU, HMT, or other authorities with jurisdiction over the Participant;",
+     "i": 1
+    },
+    {
+     "t": "(c) follow any instructions and complete any steps as we may require for your participation in the Node Referral Programme, including in the Referral App; and",
+     "i": 1
+    },
+    {
+     "t": "(d) agree to these Referral T&Cs and comply with them.",
+     "i": 1
+    }
+   ]
+  },
+  {
+   "title": "5. Obligations of the Referral Participant",
+   "items": [
+    {
+     "t": "5.1 By participating in the Node Referral Programme, Participants shall:"
+    },
+    {
+     "t": "(a) Comply with these Referral T&Cs and Logos Blockchain Testnet T&Cs;",
+     "i": 1
+    },
+    {
+     "t": "(b) Comply with all applicable laws, rules and regulations in your jurisdiction in connection with your participation with the Node Referral Programme;",
+     "i": 1
+    },
+    {
+     "t": "(c) Inform us of any updated information when any information you have provided to IFT is no longer true, correct or accurate in any material respect;",
+     "i": 1
+    },
+    {
+     "t": "(d) Securely store your seed phrase and self-custodial keys derived from the Referral App, and create, store and secure their backups. If you fail to maintain the appropriate security measures of the seed phrase and self-custodial keys, it may result in you losing access to your account in the Referral App and any Points you might have accrued therein. If you lose or forget your seed phrase or self-custodial keys, IFT will not be able to help you recover or replace them and further, IFT will not be able to assist you with the recovery of your Points;",
+     "i": 1
+    },
+    {
+     "t": "(e) Not attempt to manipulate, cheat or otherwise engage in any unethical behaviour in connection with your participation in the Node Referral Programme; and",
+     "i": 1
+    },
+    {
+     "t": "(f) Not transfer, sell or assign your Points, account in the Referral App, or any rights under these Referral T&Cs.",
+     "i": 1
+    }
+   ]
+  },
+  {
+   "title": "6. Points",
+   "items": [
+    {
+     "t": "6.1 As part of your participation in the Node Referral Programme, you may be able to accrue Points based on certain eligible activities and criteria as indicated by IFT in writing."
+    },
+    {
+     "t": "6.2 You acknowledge the following in respect of the Points:"
+    },
+    {
+     "t": "(a) Points are purely an administrative participation score associated with your account and displayed on your instance of the Referral App;",
+     "i": 1
+    },
+    {
+     "t": "(b) Points are not a token, nor a promise of a token, securities, deposits, debt instrument or any form of investment or other instrument. Nothing in these Referral T&Cs should be construed as an offer or sale of a security or regulated financial instrument; and",
+     "i": 1
+    },
+    {
+     "t": "(c) Points have no monetary value, and do not have any rights or claims beyond those explicitly stated in these Referral T&Cs. Points further do not have rights or claims on any intellectual property rights, equity or equivalent rights or any other form of participation in or relating to IFT’s projects and does not involve ownership of shares or any equivalent rights in any existing or future public or private company, corporation or other entity in any jurisdiction.",
+     "i": 1
+    },
+    {
+     "t": "6.3 On the basis of the Points you accrue during your participation in the Node Referral Programme, you may be eligible for a reward (“Reward”). You acknowledge the following in respect of the Reward:"
+    },
+    {
+     "t": "(a) Accruing Points does not automatically entitle you to a Reward since Rewards are conditional and not guaranteed. Your receipt of any Reward is conditional on, among other things, additional eligibility criteria being fulfilled (including sanctions screening) and complying with any IFT written instructions or processes (whether in the Referral App or otherwise) in order to claim and receive the Reward; and",
+     "i": 1
+    },
+    {
+     "t": "(b) IFT reserves the right, in its sole discretion, to approve or deny your claim for a Reward, including if you do not pass any sanctions compliance screening, or if IFT suspects fraud or abuse or breaches of any eligibility criteria, or if you have failed to provide any requested information.",
+     "i": 1
+    }
+   ]
+  },
+  {
+   "title": "7. Changes to the Programme",
+   "items": [
+    {
+     "t": "7.1 IFT may, in its sole discretion, change, suspend or stop the Node Referral Programme (or parts thereof) including but not limited to:"
+    },
+    {
+     "t": "(a) how Participants may accrue Points, including eligible activities and criteria to accrue Points.",
+     "i": 1
+    },
+    {
+     "t": "(b) how Rewards are determined, including whether any Points are eligible to be claimed as a Reward , the amount and form of Rewards; and",
+     "i": 1
+    },
+    {
+     "t": "(c) eligibility requirements to participate in the Node Referral Programme or to claim a Reward.",
+     "i": 1
+    },
+    {
+     "t": "7.2 IFT will, where reasonably possible, provide notice of any material changes to the Node Referral Programme via its public communication channels, including any termination of the Node Referral Programme."
+    },
+    {
+     "t": "7.3 If IFT decides to terminate the Node Referral Programme and a Participant still has unclaimed Points, such Points will automatically expire and will not be eligible for any subsequent Reward. If a Participant has made a claim for a Reward prior to the announcement of the end of the Node Referral Programme, such claim will still be considered and processed in accordance with these Referral T&Cs."
+    }
+   ]
+  },
+  {
+   "title": "8. Representations and warranties",
+   "items": [
+    {
+     "t": "8.1 By participating in the Node Referral Programme, you confirm that the representations and warranties provided under the Logos Blockchain Testnet T&Cs remain true, accurate and complete and you repeat such representations and warranties for the purposes of the Node Referral Programme."
+    }
+   ]
+  },
+  {
+   "title": "9. Disclaimers",
+   "items": [
+    {
+     "t": "9.1 IFT disclaims the following in connection the Node Referral Programme and your participation therewith:"
+    },
+    {
+     "t": "(a) the Node Referral Programme and Referral App: are provided on an \"as is\" and \"as available\" basis.",
+     "i": 1
+    },
+    {
+     "t": "(b) IFT makes no express or implied representations or warranties about or in connection with the Node Referral Programme or the Referral App. This includes warranties of merchantability, fitness for use or for a particular purpose, and non-infringement of any copyright or intellectual property rights; and",
+     "i": 1
+    },
+    {
+     "t": "(c) You acknowledge that your participation in the Node Referral Programme and your use of the Referral App are not on the basis of any statement, promise, representation or warranty that has not been set out in these Referral T&Cs.",
+     "i": 1
+    }
+   ]
+  }
+ ]
+}

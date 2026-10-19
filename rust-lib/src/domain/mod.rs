@@ -3,8 +3,10 @@
 
 pub mod codec;
 pub mod error;
+pub mod invitation;
 pub mod program;
 pub mod state;
+pub mod terms;
 
 pub use error::{DomainError, Result};
 pub use referral_core as core;
