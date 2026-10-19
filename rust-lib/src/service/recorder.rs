@@ -8,7 +8,7 @@
 //! (`uplink_epochs.json`), which the service takes in when it next reads the registry.
 //! One writer per file, so neither can lose the other's writes.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use referral_core::active_digest;
 use serde::{Deserialize, Serialize};
@@ -70,11 +70,12 @@ impl Service {
         let Some(log) = &self.recorded else { return Ok(false) };
         let Some(program) = self.program_hex() else { return Ok(false) };
         let Some(seen) = load(log.as_ref())?.deployments.remove(&program) else { return Ok(false) };
-        let publications = &mut self.deployment_mut()?.publications;
-        let before = publications.len();
+        let mut new = false;
         for (key, nodes) in seen {
-            publications.entry(key).or_insert(nodes);
+            let Some(epoch) = key.split(':').next().and_then(|e| e.parse().ok()) else { continue };
+            let Ok(active) = nodes.iter().map(|n| codec::node(n)).collect::<Result<BTreeSet<_>>>() else { continue };
+            new |= self.remember_publication(epoch, &active)?;
         }
-        Ok(publications.len() > before)
+        Ok(new)
     }
 }

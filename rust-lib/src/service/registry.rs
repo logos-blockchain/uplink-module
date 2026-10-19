@@ -7,6 +7,7 @@ use serde_json::{Value, json};
 
 use lee_core::account::AccountId;
 
+use super::lists::StoredSet;
 use super::{Service, port};
 use crate::domain::{DomainError, Result, codec, state};
 use crate::ports::Lez;
@@ -35,7 +36,7 @@ impl Service {
         let mut new = registry.epoch > 0 && self.remember_publication(registry.epoch, &registry.active_nodes)?;
         new |= self.take_recorded()?;
         if new {
-            self.persist()?;
+            self.persist_lists()?;
         }
         Ok(registry)
     }
@@ -46,17 +47,19 @@ impl Service {
 
     /// `true` when it's new.
     pub(super) fn remember_publication(&mut self, epoch: u32, active: &BTreeSet<NodeId>) -> Result<bool> {
-        let key = Self::publication_key(epoch, &active_digest(active));
-        Ok(self.deployment_mut()?.publications.insert(key, active.iter().map(codec::node_hex).collect()).is_none())
+        let set = StoredSet::new(active);
+        let sets = &mut self.lists_mut()?.sets;
+        if sets.get(&epoch) == Some(&set) {
+            return Ok(false);
+        }
+        sets.insert(epoch, set);
+        Ok(true)
     }
 
+    /// The saved active set of `epoch`, if it matches the archived `digest`.
     pub(super) fn publication(&self, (epoch, digest): (u32, [u8; 32])) -> Option<BTreeSet<NodeId>> {
-        self.deployment()
-            .publications
-            .get(&Self::publication_key(epoch, &digest))?
-            .iter()
-            .map(|node| codec::node(node).ok())
-            .collect()
+        let set = self.lists()?.sets.get(&epoch)?;
+        (set.digest()? == digest).then(|| set.nodes()).flatten()
     }
 
     /// The digest the program archived for `epoch`, or `None` if it was never published.
@@ -88,7 +91,7 @@ impl Service {
         const PAGE: u64 = 100;
         let program = self.program()?;
         let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
-        let mut offset = self.deployment().history_offset;
+        let mut offset = self.lists().map_or(0, |l| l.history_offset);
         let mut found = Vec::new();
         loop {
             // An indexer that isn't installed or running just means no history.
@@ -100,14 +103,14 @@ impl Service {
                 break;
             }
         }
-        if offset == self.deployment().history_offset {
+        if offset == self.lists().map_or(0, |l| l.history_offset) {
             return Ok(false);
         }
-        self.deployment_mut()?.history_offset = offset;
+        self.lists_mut()?.history_offset = offset;
         for (epoch, active) in found {
             self.remember_publication(epoch, &active)?;
         }
-        self.persist()?;
+        self.persist_lists()?;
         Ok(true)
     }
 }

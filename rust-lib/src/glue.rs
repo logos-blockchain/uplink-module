@@ -117,6 +117,7 @@ impl UplinkModule for UplinkModuleImpl {
             Box::new(LezCore),
             Some(Box::new(Indexer)),
             Box::new(FileStore::new(dir)),
+            Box::new(FileStore::named(dir, "uplink_lists.json")),
             Some(Box::new(FileStore::named(dir, RECORDER_LOG))),
             Box::new(LocalFiles),
             Box::new(SystemClock),

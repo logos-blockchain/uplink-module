@@ -147,8 +147,9 @@ wrong network or another version fails with `program_not_deployed` / `program_mi
 instead of a rejected transaction.
 
 Each program account is its own deployment (devnet, testnet, …) with its own saved state in
-`uplink_state.json` (the module's data directory): invitations, operations, epoch lists,
-join epochs and terms acceptance. Calling `configure` with another program account switches
+`uplink_state.json` (the module's data directory): invitations, operations, join epochs and
+terms acceptance. Epoch active sets, a few MB each on a large network, are kept apart in
+`uplink_lists.json`, a cache the indexer can refill. Calling `configure` with another program account switches
 to it; switching back finds the earlier state as it was. `info()` lists the deployments seen.
 If the file doesn't parse, the module moves it aside (`uplink_state.json.unreadable-<ms>`),
 starts empty, and `info()` reports `stateProblem: {code: "state_set_aside", file}`. If it

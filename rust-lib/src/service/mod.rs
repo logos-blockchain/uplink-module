@@ -6,6 +6,7 @@ mod cashout;
 mod claims;
 mod deployment;
 mod enrol;
+pub mod lists;
 mod notes;
 mod operations;
 mod participants;
@@ -34,6 +35,9 @@ pub struct Service {
     lez: Box<dyn Lez>,
     history: Option<Box<dyn History>>,
     store: Box<dyn Store>,
+    /// Epoch active sets (`lists`), apart from the saved state.
+    lists_store: Box<dyn Store>,
+    lists: lists::Lists,
     /// The recorder's log (`recorder`), read-only here; `None` without a recorder.
     recorded: Option<Box<dyn Store>>,
     files: Box<dyn Files>,
@@ -63,13 +67,22 @@ impl Service {
         lez: Box<dyn Lez>,
         history: Option<Box<dyn History>>,
         store: Box<dyn Store>,
+        lists_store: Box<dyn Store>,
         recorded: Option<Box<dyn Store>>,
         files: Box<dyn Files>,
         clock: Box<dyn Clock>,
         binary: Binary,
     ) -> Self {
-        let (saved, state_problem) = load(store.as_ref());
-        Self { lez, history, store, recorded, files, clock, binary, checked: None, saved, state_problem }
+        let (mut saved, state_problem) = load(store.as_ref());
+        let mut lists = lists::Lists::load(lists_store.as_ref());
+        let moved = lists::migrate(&mut saved, &mut lists);
+        let service =
+            Self { lez, history, store, lists_store, lists, recorded, files, clock, binary, checked: None, saved, state_problem };
+        if moved {
+            // Best effort: the sets are a cache, and the old state still has them until saved.
+            let _ = service.persist_lists();
+        }
+        service
     }
 
     /// The current deployment's saved state (empty if none is configured or seen yet).

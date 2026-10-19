@@ -119,9 +119,11 @@ pub struct Deployment {
     pub terms: Option<TermsAcceptance>,
     pub participants: BTreeMap<String, ParticipantRecord>,
     pub operations: BTreeMap<String, Operation>,
-    /// Every publication seen: `"<epoch>:<digest hex>"` → active nodes, hex.
+    /// Active sets as earlier versions saved them (`"<epoch>:<digest hex>"` → nodes, hex).
+    /// Read once, moved to `uplink_lists.json` (`lists`), never written again.
+    #[serde(default, skip_serializing)]
     pub publications: BTreeMap<String, Vec<String>>,
-    /// How far the indexer's history of the registry has been read.
+    #[serde(default, skip_serializing)]
     pub history_offset: u64,
 }
 
