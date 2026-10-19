@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use super::saved::{Operation, OperationKind, OperationStatus};
-use super::{Service, port, reference_id};
+use super::{Service, participant_id, port, reference_id};
 use crate::domain::{DomainError, Result, codec};
 use crate::ports::AccountEntry;
 
@@ -37,7 +37,7 @@ impl Service {
             Operation {
                 reference: reference.clone(),
                 kind,
-                participant: participant.to_lowercase(),
+                participant: participant.to_owned(),
                 status: OperationStatus::Submitting,
                 tx_hash: None,
                 error: None,
@@ -76,7 +76,7 @@ impl Service {
         let Some(existing) = self.deployment().operations.get(&reference).filter(|op| op.status != OperationStatus::Failed) else {
             return Ok(None);
         };
-        if existing.kind != kind || !existing.participant.eq_ignore_ascii_case(participant) {
+        if existing.kind != kind || existing.participant != participant {
             return Err(DomainError::new("conflict", "this reference was used for another operation"));
         }
         self.status(&reference).map(Some)
@@ -91,7 +91,7 @@ impl Service {
             .deployment()
             .operations
             .values()
-            .filter(|op| op.is_open() && op.participant.eq_ignore_ascii_case(participant))
+            .filter(|op| op.is_open() && op.participant == participant)
             .map(|op| (op.reference.clone(), op.status))
             .collect();
         for (reference, status) in open {
@@ -122,7 +122,7 @@ impl Service {
         self.deployment()
             .operations
             .values()
-            .find(|op| op.is_open() && op.participant.eq_ignore_ascii_case(participant))
+            .find(|op| op.is_open() && op.participant == participant)
     }
 
     /// Settles a pending operation once its transaction is in, or fails it once it has stayed
@@ -175,16 +175,18 @@ impl Service {
         Ok(result)
     }
 
-    pub fn operations(&self, participant: &str) -> Value {
-        json!({
+    /// The participant's operations; `""` for every participant's.
+    pub fn operations(&self, participant: &str) -> Result<Value> {
+        let participant = if participant.trim().is_empty() { None } else { Some(participant_id(participant)?) };
+        Ok(json!({
             "operations": self
                 .deployment()
                 .operations
                 .values()
-                .filter(|op| participant.is_empty() || op.participant.eq_ignore_ascii_case(participant))
+                .filter(|op| participant.as_ref().is_none_or(|p| &op.participant == p))
                 .map(operation_json)
                 .collect::<Vec<_>>()
-        })
+        }))
     }
 }
 

@@ -169,5 +169,5 @@ fn auto_claim_retries_a_failed_batch_under_its_reference_waiting_longer_each_tim
     world.lez.0.borrow_mut().reply = None;
     world.lez.0.borrow_mut().height = 130;
     assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["claimed"]["status"], "pending");
-    assert_eq!(service.operations(PARTICIPANT)["operations"].as_array().unwrap().len(), 1, "one record, not one per attempt");
+    assert_eq!(service.operations(PARTICIPANT).unwrap()["operations"].as_array().unwrap().len(), 1, "one record, not one per attempt");
 }

@@ -3,7 +3,7 @@
 use referral_core::Participant;
 use serde_json::{Value, json};
 
-use super::{Service, port};
+use super::{Service, participant_id, port};
 use crate::domain::invitation::Invitation;
 use crate::domain::{DomainError, Result, codec, state};
 
@@ -39,6 +39,7 @@ impl Service {
     }
 
     pub fn participant(&self, participant: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         match self.read_participant(participant) {
             Ok(me) => Ok(json!({
                 "registered": true,
@@ -66,6 +67,7 @@ impl Service {
 
     /// The blob to hand to a node you invite.
     pub fn invitation(&self, participant: &str, node: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         codec::account(participant)?;
         let keys = self.lez.get_private_account_keys(participant).map_err(port)?;
         let invitation = Invitation::from_keys(codec::node(node)?, &keys)?;
@@ -73,6 +75,7 @@ impl Service {
     }
 
     pub fn import_invitation(&mut self, participant: &str, blob: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         codec::account(participant)?;
         let invitation = Invitation::decode(blob)?;
         let referrer = invitation.referrer()?;
@@ -81,7 +84,7 @@ impl Service {
                 return Err(DomainError::new("conflict", "this participant already joined under another referrer"));
             }
         }
-        let record = self.deployment_mut()?.participants.entry(participant.to_lowercase()).or_default();
+        let record = self.deployment_mut()?.participants.entry(participant.to_owned()).or_default();
         record.invitation = Some(invitation);
         self.persist()?;
         Ok(json!({ "referrer": codec::node_hex(&referrer) }))
@@ -96,7 +99,7 @@ impl Service {
     }
 
     pub(super) fn invitation_for(&self, participant: &str) -> Option<&Invitation> {
-        self.deployment().participants.get(&participant.to_lowercase())?.invitation.as_ref()
+        self.deployment().participants.get(participant)?.invitation.as_ref()
     }
 
     /// Whether a participant label already names an enrolled participant.

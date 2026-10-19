@@ -8,7 +8,7 @@ use referral_core::{NodeId, Participant, Registry};
 use serde_json::{Value, json};
 
 use super::saved::{OperationKind, OperationStatus};
-use super::{Service, derived_reference, port};
+use super::{Service, participant_id, derived_reference, port};
 use crate::domain::claims::{self, Batch};
 use crate::domain::{DomainError, Result, codec, instructions};
 use crate::ports::AccountEntry;
@@ -41,6 +41,7 @@ impl Service {
     }
 
     pub fn claimable(&mut self, participant: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         let (_, batches, _) = self.claim_plan(participant)?;
         Ok(json!({
             "points": claims::total(&batches).to_string(),
@@ -53,6 +54,7 @@ impl Service {
 
     /// Submits the oldest batch. Call again (or use `auto_claim`) once it settles for the next.
     pub fn claim(&mut self, reference: &str, participant: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         if let Some(existing) = self.replay(reference, OperationKind::Claim, participant)? {
             return Ok(existing);
         }
@@ -73,7 +75,7 @@ impl Service {
             npk: hex::encode(referrer.npk.0),
             vpk: hex::encode(referrer.vpk.to_bytes()),
         });
-        let mut accounts = vec![AccountEntry::Own(participant.to_lowercase())];
+        let mut accounts = vec![AccountEntry::Own(participant.to_owned())];
         for (planned, forwards) in batch.iter().zip(&forwards) {
             accounts.push(AccountEntry::PublicNoSign(codec::account_hex(&referral_core::epoch_account(program, planned.epoch))));
             accounts.extend(planned.notes.iter().map(|id| AccountEntry::Own(codec::account_hex(id))));
@@ -96,6 +98,7 @@ impl Service {
     /// waiting longer after each failure (`retry_wait`): proving takes minutes, and a claim
     /// that keeps failing shouldn't be proved again on every poll.
     pub fn auto_claim(&mut self, participant: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         self.refresh_open(participant)?;
         if self.open_operation(participant).is_some() {
             return Ok(json!({ "skipped": "in_flight" }));
@@ -105,7 +108,7 @@ impl Service {
             return Ok(json!({ "skipped": "nothing_to_claim" }));
         };
         let epochs: Vec<u8> = batch.iter().flat_map(|e| e.epoch.to_le_bytes()).collect();
-        let reference = derived_reference(&[b"auto-claim", participant.to_lowercase().as_bytes(), &epochs]);
+        let reference = derived_reference(&[b"auto-claim", participant.as_bytes(), &epochs]);
         if let Some(failed) = self.deployment().operations.get(&reference).filter(|op| op.status == OperationStatus::Failed) {
             let retry_at = failed.failed_at_block.unwrap_or(0) + retry_wait(failed.attempts);
             if self.lez.get_current_block_height().map_err(port)? < retry_at {

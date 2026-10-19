@@ -42,7 +42,8 @@ enrolment, a payout code, or a receipt secret.
 ## API
 
 Every method returns JSON: `{"ok": true, …}` or `{"ok": false, "code", "error"}`. Ids are
-hex. `reference` is a caller-chosen 32-byte hex id; resubmitting one returns its record
+hex. A `participant` may also be given in base58, upper case or with `0x`; replies always
+use lowercase hex. `reference` is a caller-chosen 32-byte hex id; resubmitting one returns its record
 instead of sending again.
 
 | Method | Returns |

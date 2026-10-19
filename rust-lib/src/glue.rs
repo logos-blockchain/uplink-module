@@ -182,7 +182,7 @@ impl UplinkModule for UplinkModuleImpl {
         self.with(|s| s.status(&reference))
     }
     fn operations(&mut self, participant: String) -> String {
-        self.with(|s| Ok(s.operations(&participant)))
+        self.with(|s| s.operations(&participant))
     }
     fn sync(&mut self) -> String {
         self.with(|s| s.sync())

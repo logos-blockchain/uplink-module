@@ -104,6 +104,12 @@ fn load(store: &dyn Store) -> (Saved, Option<StateProblem>) {
     }
 }
 
+/// A participant (a private account in the wallet) as everything here keys and passes it:
+/// lowercase hex, like `lez_core`. Callers may give hex in any case, with `0x`, or base58.
+fn participant_id(participant: &str) -> Result<String> {
+    codec::account_any(participant).map(|id| codec::account_hex(&id))
+}
+
 /// References are caller-chosen 32-byte hex ids; resubmitting one is idempotent.
 fn reference_id(reference: &str) -> Result<String> {
     codec::bytes32(reference).map(hex::encode)
