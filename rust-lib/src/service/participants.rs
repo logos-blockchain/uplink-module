@@ -93,6 +93,10 @@ impl Service {
         Ok(json!({ "referrer": codec::node_hex(&referrer), "registered": registry.registered_nodes.contains(&referrer) }))
     }
 
+    pub(super) fn invitation_for(&self, participant: &str) -> Option<&Invitation> {
+        self.deployment().participants.get(&participant.to_lowercase())?.invitation.as_ref()
+    }
+
     /// Whether a participant label already names an enrolled participant.
     pub fn find_participant(&self, label: &str) -> Result<Value> {
         let resolved = self.lez.resolve_label(label).map_err(port)?;

@@ -3,14 +3,16 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use lee_core::account::AccountId;
-use referral_core::{NodeId, ORACLE_ACCOUNT_ID, Registry, State, active_digest, epoch_account};
+use referral_core::{Instruction, NodeId, ORACLE_ACCOUNT_ID, Registry, State, active_digest, epoch_account};
 use serde_json::{Value, json};
+use zeroize::Zeroizing;
 
 use super::Service;
 use crate::domain::invitation::Invitation;
+use crate::domain::keystore::NodeKey;
 use crate::domain::program::Binary;
-use crate::domain::codec;
-use crate::ports::{AccountEntry, Clock, History, Lez, PortResult, Store};
+use crate::domain::{codec, enrolment};
+use crate::ports::{AccountEntry, Clock, Files, History, Lez, PortResult, Store};
 
 pub(super) const PROGRAM: [u8; 32] = [0x50; 32];
 pub(super) const IMAGE_ID: [u32; 8] = [7; 8];
@@ -104,11 +106,31 @@ impl Store for FakeStore {
     }
 }
 
+pub(super) struct FakeFiles(String);
+impl Files for FakeFiles {
+    fn read_secret(&self, path: &str) -> PortResult<Zeroizing<String>> {
+        if path == "/node/keystore.yaml" { Ok(Zeroizing::new(self.0.clone())) } else { Err("no such file".into()) }
+    }
+}
+
 pub(super) struct FakeClock;
 impl Clock for FakeClock {
     fn now_ms(&self) -> u64 {
         1_000
     }
+}
+
+pub(super) fn node_key() -> NodeKey {
+    NodeKey::from_secret(&[1; 32])
+}
+
+pub(super) fn keystore_yaml() -> String {
+    format!(
+        "public_keys:\n  BlendSigning: {}\nsecret_keys:\n  BlendSigning: !Ed25519 {}\n  BlendZk: !Zk {}\n",
+        codec::node_hex(&node_key().node()),
+        hex::encode([1; 32]),
+        hex::encode([9; 32]),
+    )
 }
 
 pub(super) const REFERRER: NodeId = NodeId::new([8; 32]);
@@ -142,6 +164,7 @@ impl World {
             Box::new(self.lez.clone()),
             history,
             Box::new(self.store.clone()),
+            Box::new(FakeFiles(keystore_yaml())),
             Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
         );
@@ -182,10 +205,17 @@ impl World {
             .insert(codec::account_hex(&epoch_account(program(), epoch)), account_json(&archived.to_data().into_inner()));
     }
 
+    pub(super) fn sent(&self) -> Vec<(Vec<AccountEntry>, Vec<u8>)> {
+        self.lez.0.borrow().sent.clone()
+    }
 }
 
 pub(super) fn invitation_blob() -> String {
     Invitation::from_keys(REFERRER, &keys_json(0x22)).unwrap().encode().unwrap()
+}
+
+pub(super) fn reference(byte: u8) -> String {
+    hex::encode([byte; 32])
 }
 
 pub(super) fn accept_terms(service: &mut Service) {
@@ -194,5 +224,6 @@ pub(super) fn accept_terms(service: &mut Service) {
 
 mod activity;
 mod deployment;
+mod enrol;
 mod participants;
 mod terms;

@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 
 use super::Service;
 use super::saved::TermsAcceptance;
-use crate::domain::{Result, terms};
+use crate::domain::{DomainError, Result, terms};
 
 impl Service {
     pub fn terms(&self) -> Value {
@@ -35,4 +35,11 @@ impl Service {
         })
     }
 
+    pub(super) fn require_terms(&self) -> Result<TermsAcceptance> {
+        self.deployment()
+            .terms
+            .clone()
+            .filter(|t| terms::check(t.version, &t.sha256).is_ok())
+            .ok_or_else(|| DomainError::new("terms_not_accepted", "accept the programme's terms first"))
+    }
 }

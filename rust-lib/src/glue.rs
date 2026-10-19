@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use crate::adapters::{FileStore, Indexer, LezCore, SystemClock};
+use crate::adapters::{FileStore, Indexer, LezCore, LocalFiles, SystemClock};
 use crate::domain::DomainError;
 use crate::domain::program::Binary;
 use crate::service::Service;
@@ -42,6 +42,21 @@ pub trait UplinkModule: 'static {
     fn check_invitation(&mut self, blob: String) -> String;
     /// Saves an invitation you received; returns the referrer's node.
     fn import_invitation(&mut self, participant: String, blob: String) -> String;
+
+    /// Joins: reads `node`'s key from `keystore_path`, signs, submits Register. Pass the
+    /// running node's provider id as `node` so a keystore for another node is refused
+    /// (`keystore_mismatch`); `""` uses the keystore's BlendSigning key.
+    fn enrol(&mut self, reference: String, participant: String, keystore_path: String, node: String) -> String;
+    /// The bytes to sign, for signing elsewhere.
+    fn enrolment_message(&mut self, participant: String, node: String) -> String;
+    /// Joins with a signature made elsewhere.
+    fn enrol_with_signature(&mut self, reference: String, participant: String, node: String, signature: String) -> String;
+    /// The node a keystore is for, from its public keys only: `{node}`.
+    fn keystore_node(&mut self, keystore_path: String) -> String;
+    /// An operation's status (`submitting`, `pending`, `settled`, `failed`), settling it when its transaction is in.
+    fn status(&mut self, reference: String) -> String;
+    /// Every recorded operation, or one participant's ("" for all).
+    fn operations(&mut self, participant: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -78,6 +93,7 @@ impl UplinkModule for UplinkModuleImpl {
             Box::new(LezCore),
             Some(Box::new(Indexer)),
             Box::new(FileStore::new(&ctx.instance_persistence_path)),
+            Box::new(LocalFiles),
             Box::new(SystemClock),
             Binary::embedded(),
         ));
@@ -129,6 +145,24 @@ impl UplinkModule for UplinkModuleImpl {
     }
     fn import_invitation(&mut self, participant: String, blob: String) -> String {
         self.with(|s| s.import_invitation(&participant, &blob))
+    }
+    fn enrol(&mut self, reference: String, participant: String, keystore_path: String, node: String) -> String {
+        self.with(|s| s.enrol(&reference, &participant, &keystore_path, &node))
+    }
+    fn enrolment_message(&mut self, participant: String, node: String) -> String {
+        self.with(|s| s.enrolment_message(&participant, &node))
+    }
+    fn enrol_with_signature(&mut self, reference: String, participant: String, node: String, signature: String) -> String {
+        self.with(|s| s.enrol_with_signature(&reference, &participant, &node, &signature))
+    }
+    fn keystore_node(&mut self, keystore_path: String) -> String {
+        self.with(|s| s.keystore_node(&keystore_path))
+    }
+    fn status(&mut self, reference: String) -> String {
+        self.with(|s| s.status(&reference))
+    }
+    fn operations(&mut self, participant: String) -> String {
+        self.with(|s| Ok(s.operations(&participant)))
     }
 }
 

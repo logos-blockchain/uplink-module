@@ -3,6 +3,8 @@
 
 mod activity;
 mod deployment;
+mod enrol;
+mod operations;
 mod participants;
 mod registry;
 pub mod saved;
@@ -13,7 +15,7 @@ mod tests;
 
 use crate::domain::program::Binary;
 use crate::domain::{DomainError, Result, codec};
-use crate::ports::{Clock, History, Lez, Store};
+use crate::ports::{Clock, Files, History, Lez, Store};
 use saved::{Deployment, Saved};
 
 static NO_DEPLOYMENT: Deployment = Deployment::EMPTY;
@@ -24,6 +26,7 @@ pub struct Service {
     lez: Box<dyn Lez>,
     history: Option<Box<dyn History>>,
     store: Box<dyn Store>,
+    files: Box<dyn Files>,
     clock: Box<dyn Clock>,
     binary: Binary,
     /// The program account last found running `binary`, this session.
@@ -40,6 +43,7 @@ impl Service {
         lez: Box<dyn Lez>,
         history: Option<Box<dyn History>>,
         store: Box<dyn Store>,
+        files: Box<dyn Files>,
         clock: Box<dyn Clock>,
         binary: Binary,
     ) -> Self {
@@ -49,7 +53,7 @@ impl Service {
             .flatten()
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default();
-        Self { lez, history, store, clock, binary, checked: None, saved }
+        Self { lez, history, store, files, clock, binary, checked: None, saved }
     }
 
     /// The current deployment's saved state (empty if none is configured or seen yet).
@@ -67,4 +71,9 @@ impl Service {
         let json = serde_json::to_string(&self.saved).expect("saved state serializes");
         self.store.save(&json).map_err(|e| DomainError::new("store", e))
     }
+}
+
+/// References are caller-chosen 32-byte hex ids; resubmitting one is idempotent.
+fn reference_id(reference: &str) -> Result<String> {
+    codec::bytes32(reference).map(hex::encode)
 }

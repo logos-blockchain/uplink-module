@@ -5,9 +5,10 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
+use zeroize::Zeroizing;
 
 use crate::glue::modules;
-use crate::ports::{AccountEntry, Clock, History, Lez, PortResult, Store};
+use crate::ports::{AccountEntry, Clock, Files, History, Lez, PortResult, Store};
 
 fn call<T, E: std::fmt::Display>(method: &str, result: Result<T, E>) -> PortResult<T> {
     result.map_err(|e| format!("lez_core.{method}: {e}"))
@@ -143,6 +144,14 @@ impl Store for FileStore {
         let tmp = self.path.with_extension("json.tmp");
         std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
+    }
+}
+
+pub struct LocalFiles;
+
+impl Files for LocalFiles {
+    fn read_secret(&self, path: &str) -> PortResult<Zeroizing<String>> {
+        std::fs::read_to_string(path).map(Zeroizing::new).map_err(|e| format!("{path}: {e}"))
     }
 }
 

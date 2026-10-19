@@ -29,6 +29,46 @@ pub struct TermsAcceptance {
 #[serde(rename_all = "camelCase")]
 pub struct ParticipantRecord {
     pub invitation: Option<Invitation>,
+    /// The node this participant enrolled (or is enrolling) with, hex.
+    pub node: Option<String>,
+    pub terms: Option<TermsAcceptance>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OperationKind {
+    Register,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OperationStatus {
+    /// Recorded, not yet handed to `lez_core` (or the module stopped while it was).
+    Submitting,
+    Pending,
+    Settled,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Operation {
+    pub reference: String,
+    pub kind: OperationKind,
+    pub participant: String,
+    pub status: OperationStatus,
+    pub tx_hash: Option<String>,
+    pub error: Option<String>,
+    pub created_at_ms: u64,
+    /// Kind-specific facts, e.g. a cash-out's receipt index and points.
+    #[serde(default)]
+    pub detail: serde_json::Value,
+}
+
+impl Operation {
+    pub fn is_open(&self) -> bool {
+        matches!(self.status, OperationStatus::Submitting | OperationStatus::Pending)
+    }
 }
 
 /// Everything kept for one deployment of the program. Each network (devnet, testnet, …)
@@ -40,6 +80,7 @@ pub struct Deployment {
     /// Accepted terms not yet bound to a node by an enrolment.
     pub terms: Option<TermsAcceptance>,
     pub participants: BTreeMap<String, ParticipantRecord>,
+    pub operations: BTreeMap<String, Operation>,
     /// Every publication seen: `"<epoch>:<digest hex>"` → active nodes, hex.
     pub publications: BTreeMap<String, Vec<String>>,
     /// How far the indexer's history of the registry has been read.
@@ -50,6 +91,7 @@ impl Deployment {
     pub const EMPTY: Self = Self {
         terms: None,
         participants: BTreeMap::new(),
+        operations: BTreeMap::new(),
         publications: BTreeMap::new(),
         history_offset: 0,
     };
