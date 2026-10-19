@@ -27,7 +27,7 @@ A Rust module (`codegen.rust`), one crate in `rust-lib/`:
 | `src/adapters.rs` | The real ports: `modules().lez_core`, `modules().lez_indexer_module`, the data directory, files. |
 | `src/glue.rs` | The module API (the `UplinkModule` trait). |
 | `assets/terms.json` | The program's terms, verbatim from the T&Cs draft of 2026-08-07. |
-| `assets/referral.bin` | The program binary, uplink's at the `referral_core` pin. |
+| `build.rs` | Finds the program binary: uplink's `artifacts/programs/referral/referral.bin` at the `referral_core` pin. |
 
 ## Keys
 
@@ -96,11 +96,13 @@ nothing is configured, `UPLINK_PROGRAM` (the variable the `uplink` CLI reads). T
 picks no network itself: an app passes its release's deployment (the Uplink app does on every
 refresh), a CLI user configures it once.
 
-The program binary is embedded (`assets/referral.bin`). Before sending, the module checks the
-deployed program's image id (from its header) against the embedded binary's, so a wrong
-network or another version fails with `program_not_deployed` / `program_mismatch` instead of
-a rejected transaction. Moving the pin means copying the new binary in; a test checks its
-hash.
+The program binary is embedded: uplink's committed `artifacts/programs/referral/referral.bin`,
+taken from uplink at the commit `referral_core` is pinned to in `rust-lib/Cargo.lock`
+(`build.rs`; the nix build fetches uplink at that commit, a plain `cargo` build reads cargo's
+own checkout of it), so moving the pin moves the binary with it. Before sending, the module
+checks the deployed program's image id (from its header) against the embedded binary's, so a
+wrong network or another version fails with `program_not_deployed` / `program_mismatch`
+instead of a rejected transaction.
 
 Each program account is its own deployment (devnet, testnet, …) with its own saved state in
 `uplink_state.json` (the module's data directory): invitations, operations, epoch lists,
@@ -125,7 +127,7 @@ nix build                                          # the module
 
 | What | Pin | Status |
 |---|---|---|
-| `referral_core`, `referral_program` (tests) | logos-blockchain/uplink `master` @ `8021f33` | merged |
+| `referral_core`, `referral_program` (tests), the program binary | logos-blockchain/uplink `master` @ `8021f33` | merged |
 | LEZ crates (`lee_core`, `indexer_service_protocol`) | tag `v0.3.1`, as uplink pins them | released |
 | `lez_core` | logos-execution-zone-module PR #69 @ `dde621a` (0.5.2): `send_generic_private_transaction_with_accounts` | open |
 | `lez_indexer_module` | `87463b1` (1.2.1) | released |

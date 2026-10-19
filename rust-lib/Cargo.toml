@@ -1,0 +1,44 @@
+[package]
+name = "uplink_module"
+version = "0.1.0"
+edition = "2021"
+description = "uplink_module: the Uplink node referral program (logos-blockchain/uplink) as a Logos module, over lez_core."
+license = "MIT OR Apache-2.0"
+
+[workspace]
+resolver = "3"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+# The referral program's own types (instructions, state, messages), pinned to
+# logos-blockchain/uplink master. LEZ crates come from the same tag uplink pins (v0.3.1).
+referral_core = { git = "https://github.com/logos-blockchain/uplink", rev = "8021f33fdb4835f78ec8de7a9e12a385b8207665" }
+lee_core = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.1", features = ["host"] }
+# The LEZ indexer's transaction types, for reading past publications through lez_indexer_module.
+indexer_service_protocol = { git = "https://github.com/logos-blockchain/logos-execution-zone.git", tag = "v0.3.1" }
+borsh = "1.5.7"
+ed25519-dalek = { version = "2.2.0", features = ["zeroize"] }
+sha2 = "0.10.8"
+hex = "0.4.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+zeroize = { version = "1", features = ["serde"] }
+base64 = "0.22"
+thiserror = "2"
+# The image id of the embedded referral.bin, to check a deployment runs it.
+risc0-binfmt = { version = "3.0.5", default-features = false }
+
+# Provided by logos-module-builder at build time (staged into ../logos-rust-sdk-src).
+logos-rust-sdk = { path = "../logos-rust-sdk-src", optional = true }
+
+[features]
+default = ["logos_module"]
+logos_module = ["dep:logos-rust-sdk"]
+
+[dev-dependencies]
+# The referral program itself (its `plan` and `apply`), so tests run what the module sends
+# through the real program rules, offline. Same commit as referral_core.
+referral_program = { git = "https://github.com/logos-blockchain/uplink", rev = "8021f33fdb4835f78ec8de7a9e12a385b8207665" }
