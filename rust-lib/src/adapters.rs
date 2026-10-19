@@ -155,8 +155,21 @@ impl Store for FileStore {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
+        // On disk before the rename, and the rename itself on disk after it: otherwise a crash
+        // can leave the new name pointing at an empty file on some filesystems.
+        let write = || -> std::io::Result<()> {
+            use std::io::Write as _;
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(json.as_bytes())?;
+            file.sync_all()
+        };
+        write().map_err(|e| format!("{}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        if let Some(dir) = self.path.parent() {
+            // Best effort: not every platform can open a directory to sync it.
+            let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+        }
+        Ok(())
     }
 
     fn set_aside(&self) -> PortResult<String> {
