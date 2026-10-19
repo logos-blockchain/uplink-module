@@ -1,0 +1,32 @@
+{
+  "name": "uplink_module",
+  "display_name": "Uplink",
+  "version": "0.1.0",
+  "description": "The Uplink node referral program (logos-blockchain/uplink) over LEZ: terms, enrolment, claims and cash-out, through lez_core.",
+  "author": "Logos",
+  "type": "core",
+  "category": "blockchain",
+  "interface": "cdylib",
+  "main": "uplink_module_plugin",
+  "concurrency": "single",
+  "dependencies": [
+    { "name": "lez_core", "version": ">=0.5.2" }
+  ],
+  "optional_dependencies": ["lez_indexer_module"],
+  "codegen": {
+    "rust": {
+      "crate": "rust-lib",
+      "trait": "UplinkModule",
+      "source": "src/glue.rs"
+    }
+  },
+  "nix": {
+    "rust": {
+      "toolchain": "1.98.0",
+      "packages": { "build": [], "runtime": [] }
+    },
+    "external_libraries": [],
+    "packages": { "build": [], "runtime": [] },
+    "cmake": { "find_packages": [], "extra_include_dirs": [] }
+  }
+}
