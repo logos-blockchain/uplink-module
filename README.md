@@ -77,10 +77,12 @@ digest of each epoch's active set, and a claim must name the set itself (the pro
 it against the digest). The module learns each set live, while the epoch is current, or
 reads it from `lez_indexer_module` (checked against the digest).
 
-Live means the recorder: a thread that looks at the registry every 15 s for as long as the
-module is loaded, whether or not an app is calling it (in Basecamp, also with the Uplink
-app closed). It saves each epoch's set to `uplink_epochs.json`, which the module takes in
-on its next registry read. So epochs pass unclaimed without loss while Basecamp runs; the
+Live means the recorder: a thread that looks at the registry for as long as the module is
+loaded, whether or not an app is calling it (in Basecamp, also with the Uplink app closed):
+every 15 s after an epoch change, slowing to every 10 minutes as the epoch ages (the
+registry is a few MB on a large network). It saves each epoch's set to
+`uplink_epochs.json`, which the module takes in on its next registry read, and then forgets
+it. So epochs pass unclaimed without loss while Basecamp runs; the
 indexer is for the time it didn't.
 
 Only the sets a claim still needs are kept whole: an epoch's set is dropped once no

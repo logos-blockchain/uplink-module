@@ -136,6 +136,9 @@ pub struct Deployment {
     pub publications: BTreeMap<String, Vec<String>>,
     #[serde(default, skip_serializing)]
     pub history_offset: u64,
+    /// The latest epoch taken in from the recorder's log, which it may then forget.
+    #[serde(default)]
+    pub recorded_through: Option<u32>,
 }
 
 impl Deployment {
@@ -145,6 +148,7 @@ impl Deployment {
         operations: BTreeMap::new(),
         publications: BTreeMap::new(),
         history_offset: 0,
+        recorded_through: None,
     };
 }
 

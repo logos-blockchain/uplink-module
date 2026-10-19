@@ -226,7 +226,7 @@ const RECORDER_LOG: &str = "uplink_epochs.json";
 static RECORDER_RUNNING: AtomicBool = AtomicBool::new(false);
 static RECORDER_STOP: AtomicBool = AtomicBool::new(false);
 
-/// Starts the recorder thread, once: it looks at the registry every `recorder::INTERVAL`
+/// Starts the recorder thread, once: it looks at the registry (paced by `recorder::next_look`)
 /// for as long as the module is loaded, whether or not any app is calling it.
 fn start_recorder(dir: &str) {
     if RECORDER_RUNNING.swap(true, Ordering::SeqCst) {
@@ -234,12 +234,16 @@ fn start_recorder(dir: &str) {
     }
     let (state, log) = (FileStore::new(dir), FileStore::named(dir, RECORDER_LOG));
     let spawned = std::thread::Builder::new().name("uplink-recorder".into()).spawn(move || {
+        let mut last_new = std::time::Instant::now();
         while !RECORDER_STOP.load(Ordering::SeqCst) {
             // A failed look (no wallet open yet, lez_core busy proving, nothing configured)
             // is just tried again on the next one.
-            let _ = recorder::record_once(&LezCore, &state, &log);
+            if let Ok(Some(_)) = recorder::record_once(&LezCore, &state, &log) {
+                last_new = std::time::Instant::now();
+            }
+            let wait = recorder::next_look(last_new.elapsed());
             let mut slept = Duration::ZERO;
-            while slept < recorder::INTERVAL && !RECORDER_STOP.load(Ordering::SeqCst) {
+            while slept < wait && !RECORDER_STOP.load(Ordering::SeqCst) {
                 std::thread::sleep(Duration::from_millis(250));
                 slept += Duration::from_millis(250);
             }

@@ -55,3 +55,29 @@ fn the_recorder_keeps_each_deployment_apart() {
     let deployments = recorded(&world).deployments;
     assert_eq!(deployments.keys().cloned().collect::<Vec<_>>(), vec![hex::encode(PROGRAM)], "the other has no registry shard yet");
 }
+
+#[test]
+fn the_recorder_forgets_what_the_service_took_in() {
+    let world = World::new();
+    let mut service = world.service();
+    for epoch in 2..=3 {
+        world.set_registry(epoch, &[REFERRER], &[REFERRER]);
+        record_once(&world.lez, &world.store, &world.log).unwrap();
+    }
+    service.registry().unwrap(); // takes in 2 and 3
+
+    world.set_registry(4, &[REFERRER], &[]);
+    assert_eq!(record_once(&world.lez, &world.store, &world.log).unwrap(), Some(4));
+    let seen = &recorded(&world).deployments[&hex::encode(PROGRAM)];
+    assert_eq!(seen.keys().map(|k| k.split(':').next().unwrap().to_owned()).collect::<Vec<_>>(), ["4"]);
+}
+
+#[test]
+fn the_recorder_looks_often_only_around_an_epoch_change() {
+    use std::time::Duration;
+    use crate::service::recorder::next_look;
+    assert_eq!(next_look(Duration::ZERO), Duration::from_secs(15));
+    assert_eq!(next_look(Duration::from_secs(40)), Duration::from_secs(15), "devnet epochs");
+    assert_eq!(next_look(Duration::from_secs(600)), Duration::from_secs(60));
+    assert_eq!(next_look(Duration::from_secs(5 * 3600)), Duration::from_secs(600), "at most 10 minutes");
+}
