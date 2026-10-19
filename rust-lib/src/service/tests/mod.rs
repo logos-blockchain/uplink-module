@@ -37,6 +37,8 @@ pub(super) fn keys_json(npk: u8) -> String {
 pub(super) struct Chain {
     pub(super) private: BTreeMap<String, (String, String)>,
     pub(super) public: BTreeMap<String, String>,
+    /// Accounts in other users' wallets (their participants, notes for them).
+    pub(super) elsewhere: BTreeMap<String, String>,
     labels: BTreeMap<String, String>,
     sent: Vec<(Vec<AccountEntry>, Vec<u8>)>,
     reply: Option<String>,

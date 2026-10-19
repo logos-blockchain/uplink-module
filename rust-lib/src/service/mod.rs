@@ -14,6 +14,8 @@ pub mod saved;
 mod terms;
 
 #[cfg(test)]
+mod program_tests;
+#[cfg(test)]
 mod tests;
 
 use sha2::{Digest, Sha256};
