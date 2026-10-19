@@ -138,3 +138,36 @@ fn a_missing_indexer_is_asked_once_per_claim_and_fails_fast() {
     assert_eq!(service.claim(&reference(7), PARTICIPANT).unwrap_err().code, "history_needed");
     assert!(world.sent().is_empty());
 }
+
+#[test]
+fn auto_claim_retries_a_failed_batch_under_its_reference_waiting_longer_each_time() {
+    let world = World::new();
+    let me = enrolled(&world);
+    let child = NodeId::new([3; 32]);
+    world.set_registry(2, &[REFERRER, me, child], &[me, child]);
+    world.add_note(0x31, State::Child { node: child, referrer: me, since: 2 });
+    world.lez.0.borrow_mut().reply = Some(json!({ "success": false, "error": "InvalidProof" }).to_string());
+    world.lez.0.borrow_mut().height = 100;
+    let mut service = world.service();
+
+    let first = service.auto_claim(PARTICIPANT).unwrap();
+    let reference = first["claimed"]["reference"].as_str().unwrap().to_owned();
+    assert_eq!((first["claimed"]["status"].clone(), first["claimed"]["attempts"].clone()), (json!("failed"), json!(1)));
+
+    // Polls right after the failure send nothing.
+    let waiting = service.auto_claim(PARTICIPANT).unwrap();
+    assert_eq!((waiting["skipped"].clone(), waiting["retryAtBlock"].clone()), (json!("backoff"), json!(110)));
+    assert_eq!(world.sent().len(), 1);
+
+    // Then the same batch goes again under the same reference, and the next wait doubles.
+    world.lez.0.borrow_mut().height = 110;
+    let second = service.auto_claim(PARTICIPANT).unwrap();
+    assert_eq!((second["claimed"]["reference"].as_str().unwrap(), second["claimed"]["attempts"].clone()), (reference.as_str(), json!(2)));
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["retryAtBlock"], 130);
+
+    // Once it gets through, it's pending under that reference like any claim.
+    world.lez.0.borrow_mut().reply = None;
+    world.lez.0.borrow_mut().height = 130;
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["claimed"]["status"], "pending");
+    assert_eq!(service.operations(PARTICIPANT)["operations"].as_array().unwrap().len(), 1, "one record, not one per attempt");
+}

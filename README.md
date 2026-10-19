@@ -63,7 +63,7 @@ instead of sending again.
 | `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`; a transaction no block includes within 100 blocks fails (a Register found on chain settles instead), so it can be retried |
 | `sync()` / `notes(participant)` | syncs the wallet / new referrals and credits |
 | `claimable(participant)` / `claim(reference, participant)` | points by batch / submits the oldest batch (≤16 epochs) |
-| `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll |
+| `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll. A failed batch is retried under the same reference after 10, 20, 40, … (up to 640) blocks: `{skipped: "backoff", retryAtBlock}` meanwhile |
 | `cash_out(reference, participant, keystore_path)` | the CashOut operation (whole balance) |
 | `receipts(participant, keystore_path)` | receipts; with `""` the ones already known, without reading the key |
 | `payout_code(participant, index, keystore_path)` | the signed `uplink-payout-v2:` code |

@@ -31,6 +31,7 @@ impl Service {
         let program_kind = json!({ "kind": "disclosed", "account_id": codec::account_hex(&self.verified_program()?) }).to_string();
 
         let created_at_ms = self.clock.now_ms();
+        let attempts = self.deployment().operations.get(&reference).map_or(0, |failed| failed.attempts) + 1;
         self.deployment_mut()?.operations.insert(
             reference.clone(),
             Operation {
@@ -42,6 +43,8 @@ impl Service {
                 error: None,
                 created_at_ms,
                 pending_since_block: None,
+                attempts,
+                failed_at_block: None,
                 detail,
             },
         );
@@ -57,14 +60,8 @@ impl Service {
                 operation.tx_hash = reply.get("tx_hash").and_then(Value::as_str).map(str::to_owned);
                 operation.pending_since_block = height;
             }
-            Ok(reply) => {
-                operation.status = OperationStatus::Failed;
-                operation.error = Some(reply.get("error").and_then(Value::as_str).unwrap_or("rejected").to_owned());
-            }
-            Err(e) => {
-                operation.status = OperationStatus::Failed;
-                operation.error = Some(e);
-            }
+            Ok(reply) => operation.fail(reply.get("error").and_then(Value::as_str).unwrap_or("rejected").to_owned(), height),
+            Err(e) => operation.fail(e, height),
         }
         let result = operation_json(operation);
         self.persist()?;
@@ -99,9 +96,9 @@ impl Service {
             .collect();
         for (reference, status) in open {
             if status == OperationStatus::Submitting {
+                let height = self.lez.get_current_block_height().ok();
                 let operation = self.deployment_mut()?.operations.get_mut(&reference).expect("exists");
-                operation.status = OperationStatus::Failed;
-                operation.error = Some("interrupted before lez_core answered; retry".into());
+                operation.fail("interrupted before lez_core answered; retry".into(), height);
                 self.persist()?;
             } else {
                 self.status(&reference)?;
@@ -171,8 +168,7 @@ impl Service {
         if landed {
             op.status = OperationStatus::Settled;
         } else {
-            op.status = OperationStatus::Failed;
-            op.error = Some(format!("no block included it in {INCLUSION_BLOCKS} blocks; retry"));
+            op.fail(format!("no block included it in {INCLUSION_BLOCKS} blocks; retry"), Some(height));
         }
         let result = operation_json(op);
         self.persist()?;
@@ -200,6 +196,7 @@ pub(super) fn operation_json(op: &Operation) -> Value {
         "status": op.status,
         "txHash": op.tx_hash,
         "error": op.error,
+        "attempts": op.attempts,
         "detail": op.detail,
     })
 }

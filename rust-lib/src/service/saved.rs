@@ -82,14 +82,30 @@ pub struct Operation {
     /// block includes it (`operations::INCLUSION_BLOCKS`).
     #[serde(default)]
     pub pending_since_block: Option<i64>,
+    /// How many times this reference was sent (a failed one may be sent again).
+    #[serde(default = "one")]
+    pub attempts: u32,
+    /// The LEZ block height when it last failed, to space out automatic retries.
+    #[serde(default)]
+    pub failed_at_block: Option<i64>,
     /// Kind-specific facts, e.g. a cash-out's receipt index and points.
     #[serde(default)]
     pub detail: serde_json::Value,
 }
 
+fn one() -> u32 {
+    1
+}
+
 impl Operation {
     pub fn is_open(&self) -> bool {
         matches!(self.status, OperationStatus::Submitting | OperationStatus::Pending)
+    }
+
+    pub fn fail(&mut self, error: String, height: Option<i64>) {
+        self.status = OperationStatus::Failed;
+        self.error = Some(error);
+        self.failed_at_block = height;
     }
 }
 
