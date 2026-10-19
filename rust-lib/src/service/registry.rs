@@ -5,8 +5,18 @@ use std::collections::BTreeSet;
 use referral_core::{NodeId, ORACLE_ACCOUNT_ID, Registry, active_digest};
 use serde_json::{Value, json};
 
+use lee_core::account::AccountId;
+
 use super::{Service, port};
 use crate::domain::{DomainError, Result, codec, state};
+use crate::ports::Lez;
+
+/// The oracle's registry for `program`; empty before its first publication.
+pub(super) fn registry_at(lez: &dyn Lez, program: &AccountId) -> Result<Registry> {
+    let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
+    let account = lez.get_account_public(&oracle).map_err(port)?;
+    if account.is_empty() { Ok(Registry::default()) } else { state::registry(&codec::shard(&account, program)?) }
+}
 
 impl Service {
     pub fn registry(&mut self) -> Result<Value> {
@@ -18,12 +28,13 @@ impl Service {
         }))
     }
 
+    /// The registry as it is now. Saves its epoch's active set, and any the recorder saved
+    /// since the last read, so later claims have them.
     pub(super) fn read_registry(&mut self) -> Result<Registry> {
-        let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
-        let account = self.lez.get_account_public(&oracle).map_err(port)?;
-        let registry =
-            if account.is_empty() { Registry::default() } else { state::registry(&codec::shard(&account, &self.program()?)?)? };
-        if registry.epoch > 0 && self.remember_publication(registry.epoch, &registry.active_nodes)? {
+        let registry = registry_at(self.lez.as_ref(), &self.program()?)?;
+        let mut new = registry.epoch > 0 && self.remember_publication(registry.epoch, &registry.active_nodes)?;
+        new |= self.take_recorded()?;
+        if new {
             self.persist()?;
         }
         Ok(registry)

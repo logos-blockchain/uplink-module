@@ -131,8 +131,13 @@ pub struct FileStore {
 }
 
 impl FileStore {
+    /// The service's saved state.
     pub fn new(dir: &str) -> Self {
-        Self { path: PathBuf::from(dir).join("uplink_state.json") }
+        Self::named(dir, "uplink_state.json")
+    }
+
+    pub fn named(dir: &str, file: &str) -> Self {
+        Self { path: PathBuf::from(dir).join(file) }
     }
 }
 

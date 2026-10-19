@@ -9,6 +9,7 @@ mod enrol;
 mod notes;
 mod operations;
 mod participants;
+pub mod recorder;
 mod registry;
 pub mod saved;
 mod terms;
@@ -33,6 +34,8 @@ pub struct Service {
     lez: Box<dyn Lez>,
     history: Option<Box<dyn History>>,
     store: Box<dyn Store>,
+    /// The recorder's log (`recorder`), read-only here; `None` without a recorder.
+    recorded: Option<Box<dyn Store>>,
     files: Box<dyn Files>,
     clock: Box<dyn Clock>,
     binary: Binary,
@@ -60,12 +63,13 @@ impl Service {
         lez: Box<dyn Lez>,
         history: Option<Box<dyn History>>,
         store: Box<dyn Store>,
+        recorded: Option<Box<dyn Store>>,
         files: Box<dyn Files>,
         clock: Box<dyn Clock>,
         binary: Binary,
     ) -> Self {
         let (saved, state_problem) = load(store.as_ref());
-        Self { lez, history, store, files, clock, binary, checked: None, saved, state_problem }
+        Self { lez, history, store, recorded, files, clock, binary, checked: None, saved, state_problem }
     }
 
     /// The current deployment's saved state (empty if none is configured or seen yet).

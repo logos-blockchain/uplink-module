@@ -3,9 +3,19 @@
 use lee_core::account::AccountId;
 use serde_json::{Value, json};
 
+use super::saved::Saved;
 use super::{Service, StateProblem, port, PROGRAM_ACCOUNT_ENV};
 use crate::domain::program;
 use crate::domain::{DomainError, Result, codec, terms};
+
+/// The deployment in use: the configured program account, else `UPLINK_PROGRAM`.
+pub(super) fn configured_program(saved: &Saved) -> Option<String> {
+    saved.config.program_account.clone().or_else(|| {
+        let env = std::env::var(PROGRAM_ACCOUNT_ENV).ok()?;
+        // Unparseable stays as given, so program() reports it.
+        Some(codec::account_any(&env).map_or(env, |id| codec::account_hex(&id)))
+    })
+}
 
 impl Service {
     /// Selects the deployment by its program account (hex or base58); `""` clears it, back to
@@ -75,15 +85,7 @@ impl Service {
     }
 
     pub(super) fn program_hex(&self) -> Option<String> {
-        self.saved
-            .config
-            .program_account
-            .clone()
-            .or_else(|| {
-                let env = std::env::var(PROGRAM_ACCOUNT_ENV).ok()?;
-                // Unparseable stays as given, so program() reports it.
-                Some(codec::account_any(&env).map_or(env, |id| codec::account_hex(&id)))
-            })
+        configured_program(&self.saved)
     }
 
     pub(super) fn program(&self) -> Result<AccountId> {

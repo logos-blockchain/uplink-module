@@ -3,8 +3,8 @@
 The Uplink node referral program as a Logos module: terms, enrolment, claims and cash-out
 against the referral program in [logos-blockchain/uplink](https://github.com/logos-blockchain/uplink),
 through `lez_core`'s generic API. The Uplink app in Basecamp
-([logos-uplink-app](https://github.com/logos-co/logos-uplink-app)) and `logoscore` call the
-same methods.
+([logos-uplink-app](https://github.com/logos-co/logos-uplink-app)) and the command line
+(`logosctl`) call the same methods.
 
 > Status: early. `lez_core` is pinned to an open PR (see [Pins](#pins)), and the program has
 > so far only run on a local devnet.
@@ -12,7 +12,7 @@ same methods.
 ## How it fits
 
 ```
-Uplink app / logoscore ──▶ uplink_module ──▶ lez_core             (wallet: keys, reads, proving, submit)
+Uplink app / logosctl ──▶ uplink_module ──▶ lez_core             (wallet: keys, reads, proving, submit)
                                  │       └─▶ lez_indexer_module   (optional: past publications)
                                  └─ referral_core (uplink)        (the program's formats, compiled in)
 ```
@@ -77,6 +77,12 @@ digest of each epoch's active set, and a claim must name the set itself (the pro
 it against the digest). The module learns each set live, while the epoch is current, or
 reads it from `lez_indexer_module` (checked against the digest).
 
+Live means the recorder: a thread that looks at the registry every 15 s for as long as the
+module is loaded, whether or not an app is calling it (in Basecamp, also with the Uplink
+app closed). It saves each epoch's set to `uplink_epochs.json`, which the module takes in
+on its next registry read. So epochs pass unclaimed without loss while Basecamp runs; the
+indexer is for the time it didn't.
+
 An epoch whose set it has neither doesn't hold up the others: they're claimed, and it's
 reported in `claimable`'s `history` as `{code, missingEpochs, indexer: {state,
 indexedBlock, error}}`:
@@ -91,8 +97,8 @@ genesis against your node, so it finds every past epoch, also after restoring a 
 new machine (this relies on nodes keeping all finalized blocks, as they do while they sync
 from genesis; a node bootstrapped from a checkpoint wouldn't have the epochs before it).
 
-From the command line, the indexer lives as long as the process that started it, so use
-`logosctl`'s daemon (the released CLI; `logoscore` exits after its calls):
+From the command line, the indexer (and the recorder) run as long as the daemon that
+loaded them:
 
 ```bash
 logosctl daemon start --detach
@@ -105,18 +111,24 @@ logosctl call uplink_module claim <reference> <participant>
 Invitation codes are `uplink-invite-v1:` + base64url of the inviter's node and its participant's public
 keys; the `uplink` CLI's invitation JSON is accepted too.
 
-### From `logoscore`
+### From the command line
+
+With `logosctl daemon start --detach` running (`logoscore` takes the same calls):
 
 ```bash
-logoscore … -c "uplink_module.configure(<program account>)"                    # once
-logoscore … -c "uplink_module.check_program()"
-logoscore … -c "uplink_module.terms()"
-logoscore … -c "uplink_module.accept_terms(1, <sha256>)"
-logoscore … -c "uplink_module.create_participant(uplink-referral)"
-logoscore … -c "uplink_module.import_invitation(<participant>, <invitation code>)"   # if invited
-logoscore … -c "uplink_module.enrol(<reference>, <participant>, /path/to/keystore.yaml, <node>)"
-logoscore … -c "uplink_module.status(<reference>)"
+logosctl module load uplink_module
+logosctl call uplink_module configure <program account>                 # once
+logosctl call uplink_module check_program
+logosctl call uplink_module terms
+logosctl call uplink_module accept_terms 1 <sha256>
+logosctl call uplink_module create_participant uplink-referral
+logosctl call uplink_module import_invitation <participant> <invitation code>   # if invited
+logosctl call uplink_module enrol <reference> <participant> /path/to/keystore.yaml <node>
+logosctl call uplink_module status <reference>
 ```
+
+Arguments that look like numbers are sent as numbers; pass a hex id that is all digits as
+`str:<id>`.
 
 ## Configuration
 

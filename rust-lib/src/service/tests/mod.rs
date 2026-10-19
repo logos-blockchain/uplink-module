@@ -179,6 +179,8 @@ pub(super) const REFERRER: NodeId = NodeId::new([8; 32]);
 pub(super) struct World {
     pub(super) lez: FakeLez,
     pub(super) store: FakeStore,
+    /// The recorder's log.
+    pub(super) log: FakeStore,
 }
 
 impl World {
@@ -190,7 +192,7 @@ impl World {
 
     /// A wallet with an unregistered participant, and a chain with nothing published.
     pub(super) fn empty() -> Self {
-        let world = Self { lez: FakeLez::default(), store: FakeStore::default() };
+        let world = Self { lez: FakeLez::default(), store: FakeStore::default(), log: FakeStore::default() };
         world.lez.0.borrow_mut().private.insert(PARTICIPANT.into(), (EMPTY_ACCOUNT.into(), keys_json(0x11)));
         world.deploy(&hex::encode(PROGRAM), IMAGE_ID);
         world
@@ -212,6 +214,7 @@ impl World {
             Box::new(self.lez.clone()),
             history,
             Box::new(self.store.clone()),
+            Some(Box::new(self.log.clone())),
             Box::new(FakeFiles(keystore_yaml())),
             Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
@@ -329,5 +332,6 @@ mod claims;
 mod deployment;
 mod enrol;
 mod participants;
+mod recorder;
 mod saved_state;
 mod terms;
