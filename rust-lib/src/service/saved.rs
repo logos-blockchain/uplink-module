@@ -51,6 +51,10 @@ pub struct ParticipantRecord {
     pub planned_through: Option<u32>,
     #[serde(default)]
     pub needs: Vec<u32>,
+    /// A fingerprint of the receipt secret first used for this participant, so a different
+    /// one is refused (`cashout`).
+    #[serde(default)]
+    pub receipt_fingerprint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -59,6 +63,10 @@ pub struct KnownReceipt {
     pub index: u64,
     pub account: String,
     pub points: String,
+    /// Kept so its payout code can be made without the receipt secret again (it also needs
+    /// the node's signature, so it's useless on its own).
+    #[serde(default)]
+    pub blinding_factor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

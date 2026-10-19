@@ -32,12 +32,27 @@ A Rust module (`codegen.rust`), one crate in `rust-lib/`:
 ## Keys
 
 The node's Blend signing key (`BlendSigning` in its `keystore.yaml`; its public half is the
-node's ID in the program) signs the enrolment and derives the cash-out receipt secret, as
-uplink defines it (`SHA256("Uplink/ReceiptSecret/v1\0" ‖ node secret)`), so receipts match
-the `uplink` CLI's. The caller passes the path to the node's `keystore.yaml`, which is the
-user's consent. The module reads only the Ed25519 key whose public key is the node, uses it,
-and wipes it. It is never stored, logged or returned. Nothing here signs anything but an
-enrolment, a payout code, or a receipt secret.
+node's ID in the program) provides three things: the enrolment's signature, the payout
+code's signature, and the cash-out receipt secret, as uplink defines it
+(`SHA256("Uplink/ReceiptSecret/v1\0" ‖ node secret)`, so receipts match the `uplink` CLI's).
+
+Every one of them can come from whoever holds the key, so the key never reaches the module.
+In Basecamp that's the Blockchain app, which asks the user each time:
+
+| Needs | Module calls |
+|---|---|
+| Enrolment signature | `enrolment_message` → sign → `enrol_with_signature` |
+| Receipt secret | `cash_out_with_secret`, `receipts_with_secret` |
+| Payout signature | `payout_message` → sign → `payout_code_with_signature` |
+
+The module checks what it's handed: a signature must be the node's over that exact message,
+and a receipt secret must be the one first used for the participant (it keeps a fingerprint,
+never the secret) and find the receipts already known. A wrong secret would otherwise put a
+cash-out where no one could find it again.
+
+On the command line, the same calls take the path to the node's `keystore.yaml` instead
+(`enrol`, `cash_out`, `receipts`, `payout_code`). The module reads only the Ed25519 key whose
+public key is the node, uses it, and wipes it. It is never stored, logged or returned.
 
 ## API
 
@@ -68,6 +83,8 @@ instead of sending again.
 | `cash_out(reference, participant, keystore_path)` | the CashOut operation (whole balance) |
 | `receipts(participant, keystore_path)` | receipts; with `""` the ones already known, without reading the key |
 | `payout_code(participant, index, keystore_path)` | the signed `uplink-payout-v2:` code |
+| `cash_out_with_secret(reference, participant, receipt_secret)` / `receipts_with_secret(participant, receipt_secret)` | the same, with the node's receipt secret (hex) instead of its keystore |
+| `payout_message(participant, index, receipt_secret)` / `payout_code_with_signature(participant, index, signature)` | the text the node signs for a payout code (`""` secret for a receipt already known) / the code from that signature |
 
 ### Claim history
 

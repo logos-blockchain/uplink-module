@@ -80,6 +80,19 @@ pub trait UplinkModule: 'static {
     fn receipts(&mut self, participant: String, keystore_path: String) -> String;
     /// The signed code for the payout form.
     fn payout_code(&mut self, participant: String, index: i64, keystore_path: String) -> String;
+
+    // The same, with what the node's key provides handed in, so the key stays with whoever
+    // holds it (in Basecamp, the Blockchain app). The receipt secret is hex, used and wiped.
+
+    /// `cash_out` with the node's receipt secret.
+    fn cash_out_with_secret(&mut self, reference: String, participant: String, receipt_secret: String) -> String;
+    /// `receipts` with the node's receipt secret: found on-chain and remembered.
+    fn receipts_with_secret(&mut self, participant: String, receipt_secret: String) -> String;
+    /// `{message, receipt, points}`: the text the node signs for receipt `index`'s payout code.
+    /// `receipt_secret` may be `""` for a receipt this module already knows.
+    fn payout_message(&mut self, participant: String, index: i64, receipt_secret: String) -> String;
+    /// `{code, receipt, points}` from the node's signature (hex) over `payout_message`.
+    fn payout_code_with_signature(&mut self, participant: String, index: i64, signature: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -215,6 +228,24 @@ impl UplinkModule for UplinkModuleImpl {
     fn payout_code(&mut self, participant: String, index: i64, keystore_path: String) -> String {
         self.with(|s| match u64::try_from(index) {
             Ok(index) => s.payout_code(&participant, index, &keystore_path),
+            Err(_) => Err(DomainError::new("unknown_receipt", "no receipt with this index")),
+        })
+    }
+    fn cash_out_with_secret(&mut self, reference: String, participant: String, receipt_secret: String) -> String {
+        self.with(|s| s.cash_out_with_secret(&reference, &participant, &receipt_secret))
+    }
+    fn receipts_with_secret(&mut self, participant: String, receipt_secret: String) -> String {
+        self.with(|s| s.receipts_with_secret(&participant, &receipt_secret))
+    }
+    fn payout_message(&mut self, participant: String, index: i64, receipt_secret: String) -> String {
+        self.with(|s| match u64::try_from(index) {
+            Ok(index) => s.payout_message(&participant, index, &receipt_secret),
+            Err(_) => Err(DomainError::new("unknown_receipt", "no receipt with this index")),
+        })
+    }
+    fn payout_code_with_signature(&mut self, participant: String, index: i64, signature: String) -> String {
+        self.with(|s| match u64::try_from(index) {
+            Ok(index) => s.payout_code_with_signature(&participant, index, &signature),
             Err(_) => Err(DomainError::new("unknown_receipt", "no receipt with this index")),
         })
     }
