@@ -1,7 +1,9 @@
 //! The module's use cases, over the domain and the ports. Every call returns JSON
 //! (`serde_json::Value`) or a `DomainError`; `glue` turns those into the module's replies.
 
+mod activity;
 mod deployment;
+mod registry;
 pub mod saved;
 mod terms;
 
@@ -10,7 +12,7 @@ mod tests;
 
 use crate::domain::program::Binary;
 use crate::domain::{DomainError, Result, codec};
-use crate::ports::{Clock, Lez, Store};
+use crate::ports::{Clock, History, Lez, Store};
 use saved::{Deployment, Saved};
 
 static NO_DEPLOYMENT: Deployment = Deployment::EMPTY;
@@ -19,6 +21,7 @@ pub const PROGRAM_ACCOUNT_ENV: &str = "UPLINK_PROGRAM";
 
 pub struct Service {
     lez: Box<dyn Lez>,
+    history: Option<Box<dyn History>>,
     store: Box<dyn Store>,
     clock: Box<dyn Clock>,
     binary: Binary,
@@ -34,6 +37,7 @@ pub(crate) fn port(error: String) -> DomainError {
 impl Service {
     pub fn new(
         lez: Box<dyn Lez>,
+        history: Option<Box<dyn History>>,
         store: Box<dyn Store>,
         clock: Box<dyn Clock>,
         binary: Binary,
@@ -44,7 +48,7 @@ impl Service {
             .flatten()
             .and_then(|json| serde_json::from_str(&json).ok())
             .unwrap_or_default();
-        Self { lez, store, clock, binary, checked: None, saved }
+        Self { lez, history, store, clock, binary, checked: None, saved }
     }
 
     /// The current deployment's saved state (empty if none is configured or seen yet).

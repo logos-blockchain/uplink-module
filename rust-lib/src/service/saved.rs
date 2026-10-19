@@ -31,11 +31,17 @@ pub struct TermsAcceptance {
 pub struct Deployment {
     /// Accepted terms not yet bound to a node by an enrolment.
     pub terms: Option<TermsAcceptance>,
+    /// Every publication seen: `"<epoch>:<digest hex>"` → active nodes, hex.
+    pub publications: BTreeMap<String, Vec<String>>,
+    /// How far the indexer's history of the registry has been read.
+    pub history_offset: u64,
 }
 
 impl Deployment {
     pub const EMPTY: Self = Self {
         terms: None,
+        publications: BTreeMap::new(),
+        history_offset: 0,
     };
 }
 

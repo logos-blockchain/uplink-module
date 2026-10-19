@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use crate::adapters::{FileStore, LezCore, SystemClock};
+use crate::adapters::{FileStore, Indexer, LezCore, SystemClock};
 use crate::domain::DomainError;
 use crate::domain::program::Binary;
 use crate::service::Service;
@@ -23,6 +23,12 @@ pub trait UplinkModule: 'static {
     fn terms_status(&mut self) -> String;
     /// Accepts the current terms; `sha256` must be the one `terms()` returned.
     fn accept_terms(&mut self, version: i64, sha256: String) -> String;
+
+    /// `{epoch, nodes, active}`.
+    fn registry(&mut self) -> String;
+    /// For each node (comma-separated hex), active in each of the last `count` published epochs:
+    /// `{epochs: [..], nodes: {node: [1|0|-1, ..]}}`, oldest first; `-1` = unknown.
+    fn activity(&mut self, nodes: String, count: i64) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -57,6 +63,7 @@ impl UplinkModule for UplinkModuleImpl {
     fn on_context_ready(&mut self, ctx: &RustModuleContext) {
         self.service = Some(Service::new(
             Box::new(LezCore),
+            Some(Box::new(Indexer)),
             Box::new(FileStore::new(&ctx.instance_persistence_path)),
             Box::new(SystemClock),
             Binary::embedded(),
@@ -83,6 +90,14 @@ impl UplinkModule for UplinkModuleImpl {
             Ok(version) => s.accept_terms(version, &sha256),
             Err(_) => Err(DomainError::new("terms_changed", "these are not the current terms")),
         })
+    }
+    fn registry(&mut self) -> String {
+        self.with(Service::registry)
+    }
+    fn activity(&mut self, nodes: String, count: i64) -> String {
+        let nodes: Vec<String> = nodes.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect();
+        let count = u32::try_from(count.clamp(1, 64)).unwrap_or(16);
+        self.with(|s| s.activity(&nodes, count))
     }
 }
 

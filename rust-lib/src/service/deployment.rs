@@ -61,6 +61,7 @@ impl Service {
             "programAccount": self.program_hex(),
             "deployments": self.saved.deployments.keys().collect::<Vec<_>>(),
             "termsVersion": terms::version(),
+            "history": self.history.is_some(),
         })
     }
 

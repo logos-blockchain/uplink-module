@@ -7,7 +7,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::Value;
 
 use crate::glue::modules;
-use crate::ports::{AccountEntry, Clock, Lez, PortResult, Store};
+use crate::ports::{AccountEntry, Clock, History, Lez, PortResult, Store};
 
 fn call<T, E: std::fmt::Display>(method: &str, result: Result<T, E>) -> PortResult<T> {
     result.map_err(|e| format!("lez_core.{method}: {e}"))
@@ -95,6 +95,24 @@ impl Lez for LezCore {
 
     fn poll_transaction_status(&self, tx_hash: &str) -> PortResult<bool> {
         call("poll_transaction_status", modules().lez_core.poll_transaction_status(tx_hash))
+    }
+}
+
+/// `lez_indexer_module`, an optional dependency: never loaded for us, so calls fail when it
+/// isn't running, and the service then carries on without history.
+pub struct Indexer;
+
+/// A call to a module that isn't running waits the protocol's full deadline (20 s) before
+/// failing; a page of history needs far less.
+const INDEXER_TIMEOUT: Duration = Duration::from_secs(5);
+
+impl History for Indexer {
+    fn transactions_by_account(&self, account: &str, offset: u64, limit: u64) -> PortResult<String> {
+        let page = modules()
+            .lez_indexer_module
+            .get_transactions_by_account_with_timeout(account, &offset.to_string(), &limit.to_string(), INDEXER_TIMEOUT)
+            .map_err(|e| format!("lez_indexer_module.getTransactionsByAccount: {e}"))?;
+        if page.is_empty() { Err("lez_indexer_module: no answer (not running?)".into()) } else { Ok(page) }
     }
 }
 
