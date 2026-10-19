@@ -14,8 +14,19 @@ impl Service {
         self.invitation_for(participant).map(|invitation| invitation.referrer()).transpose()
     }
 
+    /// A keystore from a path, where that's allowed (`Files::keystore_paths`).
+    fn read_keystore(&self, keystore_path: &str) -> Result<zeroize::Zeroizing<String>> {
+        if !self.files.keystore_paths() {
+            return Err(DomainError::new(
+                "keystore_paths_off",
+                "this module doesn't read keystores here; have the node's app sign (or set UPLINK_KEYSTORE_PATHS=1 on the command line)",
+            ));
+        }
+        self.files.read_secret(keystore_path).map_err(|e| DomainError::new("keystore", e))
+    }
+
     pub(crate) fn load_node_key(&self, keystore_path: &str, node: Option<NodeId>) -> Result<NodeKey> {
-        let yaml = self.files.read_secret(keystore_path).map_err(|e| DomainError::new("keystore", e))?;
+        let yaml = self.read_keystore(keystore_path)?;
         keystore::blend_signing_key(&yaml, node)
     }
 
@@ -107,7 +118,7 @@ impl Service {
 
     /// The node a keystore is for, from its public keys only.
     pub fn keystore_node(&self, keystore_path: &str) -> Result<Value> {
-        let yaml = self.files.read_secret(keystore_path).map_err(|e| DomainError::new("keystore", e))?;
+        let yaml = self.read_keystore(keystore_path)?;
         Ok(json!({ "node": codec::node_hex(&crate::domain::keystore::blend_signing_public(&yaml)?) }))
     }
 }

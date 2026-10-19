@@ -81,6 +81,10 @@ pub trait Store {
 /// Files the user points the module at.
 pub trait Files {
     fn read_secret(&self, path: &str) -> PortResult<Zeroizing<String>>;
+    /// Whether the module may read a keystore from a path a caller gives. Off unless the
+    /// operator turns it on (`UPLINK_KEYSTORE_PATHS=1`): any caller can name a path, so
+    /// where the key has another holder (Basecamp's Blockchain app), it must stay there.
+    fn keystore_paths(&self) -> bool;
 }
 
 pub trait Clock {

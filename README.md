@@ -50,8 +50,10 @@ and a receipt secret must be the one first used for the participant (it keeps a 
 never the secret) and find the receipts already known. A wrong secret would otherwise put a
 cash-out where no one could find it again.
 
-On the command line, the same calls take the path to the node's `keystore.yaml` instead
-(`enrol`, `cash_out`, `receipts`, `payout_code`). The module reads only the Ed25519 key whose
+On the command line, the same calls can take the path to the node's `keystore.yaml` instead
+(`enrol`, `cash_out`, `receipts`, `payout_code`, and `keystore_node`), but only where the
+module runs with `UPLINK_KEYSTORE_PATHS=1`: any caller can name a path, so by default the
+module reads no keystore at all and answers `keystore_paths_off`. The module reads only the Ed25519 key whose
 public key is the node, uses it, and wipes it. It is never stored, logged or returned.
 
 ## API
@@ -141,7 +143,12 @@ keys; the `uplink` CLI's invitation JSON is accepted too.
 
 ### From the command line
 
-With `logosctl daemon start --detach` running (`logoscore` takes the same calls):
+With the daemon running (`logoscore` takes the same calls), and allowed to read the
+keystore, since there's no Blockchain app to sign:
+
+```bash
+UPLINK_KEYSTORE_PATHS=1 logosctl daemon start --detach
+```
 
 ```bash
 logosctl module load uplink_module

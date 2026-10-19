@@ -169,6 +169,9 @@ impl Store for FileStore {
 
 pub struct LocalFiles;
 
+/// Set to `1` where the module may read keystores from paths (`Files::keystore_paths`).
+pub const KEYSTORE_PATHS_ENV: &str = "UPLINK_KEYSTORE_PATHS";
+
 /// A node's keystore.yaml is a few KB; anything far bigger is the wrong file.
 const MAX_SECRET_FILE: u64 = 64 * 1024;
 
@@ -183,6 +186,10 @@ impl Files for LocalFiles {
             return Err(format!("{path}: larger than {} KB, not a keystore", MAX_SECRET_FILE / 1024));
         }
         Ok(text)
+    }
+
+    fn keystore_paths(&self) -> bool {
+        std::env::var(KEYSTORE_PATHS_ENV).is_ok_and(|v| v == "1")
     }
 }
 
