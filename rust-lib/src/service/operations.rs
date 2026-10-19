@@ -69,13 +69,21 @@ impl Service {
     }
 
     /// The record of an operation already made under `reference` (brought up to date), unless
-    /// it failed. Each operation checks this first: once one settles, the checks before sending
-    /// ("already registered", "nothing to claim") would refuse the same request.
+    /// it failed and the chain doesn't show it landed. Each operation checks this first: once
+    /// one settles, the checks before sending ("already registered", "nothing to claim") would
+    /// refuse the same request.
     pub(super) fn replay(&mut self, reference: &str, kind: OperationKind, participant: &str) -> Result<Option<Value>> {
         let reference = reference_id(reference)?;
-        let Some(existing) = self.deployment().operations.get(&reference).filter(|op| op.status != OperationStatus::Failed) else {
-            return Ok(None);
-        };
+        let Some(existing) = self.deployment().operations.get(&reference).cloned() else { return Ok(None) };
+        if existing.status == OperationStatus::Failed {
+            // A failed send may have landed after all (lez_core timed out but went on): look
+            // before it's sent again.
+            if existing.kind != kind || existing.participant != participant || !self.landed(&existing) {
+                return Ok(None);
+            }
+            self.settle(&reference, &existing)?;
+            return Ok(Some(operation_json(&self.deployment().operations[&reference])));
+        }
         if existing.kind != kind || existing.participant != participant {
             return Err(DomainError::new("conflict", "this reference was used for another operation"));
         }
@@ -84,8 +92,9 @@ impl Service {
 
     /// Brings the participant's open operations up to date: pending ones settle once their
     /// transaction is in, and one still "submitting" was cut off before `lez_core` answered
-    /// (submitting finishes within one call), so it fails and may be retried. Retrying is safe:
-    /// the program refuses a second Register, an epoch already paid, or a zero cash-out.
+    /// (submitting finishes within one call): it settles if the chain shows it landed, else
+    /// fails and may be retried. The program also refuses a second Register, an epoch already
+    /// paid, or a second receipt, so even a blind retry does no harm.
     pub(super) fn refresh_open(&mut self, participant: &str) -> Result<()> {
         let open: Vec<(String, OperationStatus)> = self
             .deployment()
@@ -96,6 +105,12 @@ impl Service {
             .collect();
         for (reference, status) in open {
             if status == OperationStatus::Submitting {
+                // Cut off before lez_core answered: it may still have gone through.
+                let operation = self.deployment().operations[&reference].clone();
+                if self.landed(&operation) {
+                    self.settle(&reference, &operation)?;
+                    continue;
+                }
                 let height = self.lez.get_current_block_height().ok();
                 let operation = self.deployment_mut()?.operations.get_mut(&reference).expect("exists");
                 operation.fail("interrupted before lez_core answered; retry".into(), height);
@@ -140,13 +155,49 @@ impl Service {
             return self.check_dropped(&reference, &operation);
         }
         if settled {
-            self.deployment_mut()?.operations.get_mut(&reference).expect("exists").status = OperationStatus::Settled;
-            if operation.kind == OperationKind::CashOut {
-                self.remember_receipt(&operation)?;
-            }
-            self.persist()?;
+            self.settle(&reference, &operation)?;
         }
         Ok(operation_json(&self.deployment().operations[&reference]))
+    }
+
+    fn settle(&mut self, reference: &str, operation: &Operation) -> Result<()> {
+        let op = self.deployment_mut()?.operations.get_mut(reference).expect("exists");
+        op.status = OperationStatus::Settled;
+        op.error = None;
+        if operation.kind == OperationKind::CashOut {
+            self.remember_receipt(operation)?;
+        }
+        self.persist()
+    }
+
+    /// Whether the chain shows the operation's effect, whatever became of its transaction:
+    /// the participant registered, its balance up by the claim's points (one operation per
+    /// participant is open at a time, so nothing else moves it meanwhile), or the receipt
+    /// created. Used wherever the outcome is uncertain, so a send that landed is never
+    /// reported failed or sent again.
+    fn landed(&self, operation: &Operation) -> bool {
+        let detail = &operation.detail;
+        match operation.kind {
+            OperationKind::Register => self.read_participant(&operation.participant).is_ok(),
+            OperationKind::Claim => {
+                let (Some(before), Some(points)) = (
+                    detail["balanceBefore"].as_str().and_then(|b| b.parse::<u128>().ok()),
+                    detail["points"].as_str().and_then(|p| p.parse::<u128>().ok()),
+                ) else {
+                    return false;
+                };
+                self.read_participant(&operation.participant).is_ok_and(|me| me.reward_balance >= before + points)
+            }
+            OperationKind::CashOut => detail["receipt"].as_str().is_some_and(|receipt| {
+                let Ok(program) = self.program() else { return false };
+                self.lez
+                    .get_account_public(receipt)
+                    .ok()
+                    .filter(|json| !json.is_empty())
+                    .and_then(|json| codec::shard(&json, &program).ok())
+                    .is_some_and(|data| crate::domain::state::receipt_points(&data).is_some())
+            }),
+        }
     }
 
     /// A pending transaction no block has included yet: starts or checks its deadline.
@@ -162,17 +213,14 @@ impl Service {
         if height >= since && height - since <= INCLUSION_BLOCKS {
             return Ok(operation_json(operation));
         }
-        // A Register can be found on chain without its transaction: the participant exists.
-        let landed = operation.kind == OperationKind::Register && self.read_participant(&operation.participant).is_ok();
-        let op = self.deployment_mut()?.operations.get_mut(reference).expect("exists");
-        if landed {
-            op.status = OperationStatus::Settled;
+        if self.landed(operation) {
+            self.settle(reference, operation)?;
         } else {
+            let op = self.deployment_mut()?.operations.get_mut(reference).expect("exists");
             op.fail(format!("no block included it in {INCLUSION_BLOCKS} blocks; retry"), Some(height));
+            self.persist()?;
         }
-        let result = operation_json(op);
-        self.persist()?;
-        Ok(result)
+        Ok(operation_json(&self.deployment().operations[reference]))
     }
 
     /// The participant's operations; `""` for every participant's.

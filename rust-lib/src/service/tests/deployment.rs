@@ -30,3 +30,22 @@ fn the_program_is_checked_against_the_deployment() {
     service.configure(&other).unwrap();
     assert_eq!(service.check_program().unwrap_err().code, "program_mismatch");
 }
+
+#[test]
+fn a_program_that_changes_after_a_send_is_caught_before_the_next() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    service.import_invitation(PARTICIPANT, &invitation_blob()).unwrap();
+    assert_eq!(service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap()["status"], "pending");
+    world.lez.0.borrow_mut().settled = true;
+    service.status(&reference(1)).unwrap();
+
+    // Same account, another program (a redeploy, or the wallet on another network).
+    world.deploy(&hex::encode(PROGRAM), [9; 8]);
+    let mut participant = Participant::new(node_key().node(), Some(referrer()));
+    participant.reward_balance = 3;
+    world.set_participant(participant);
+    assert_eq!(service.cash_out(&reference(2), PARTICIPANT, "/node/keystore.yaml").unwrap_err().code, "program_mismatch");
+    assert_eq!(world.sent().len(), 1);
+}

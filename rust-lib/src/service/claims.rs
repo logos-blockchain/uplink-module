@@ -20,6 +20,8 @@ struct ClaimPlan {
     notes: Notes,
     /// Published epochs whose active set isn't known yet, oldest first.
     missing: Vec<u32>,
+    /// At least this much is waiting in them (`claims::Plan::waiting`).
+    waiting: u128,
 }
 
 /// Blocks `auto_claim` waits before sending a batch again after its `attempts`-th failure:
@@ -57,10 +59,10 @@ impl Service {
         }
         let needs = plan.batches.iter().flatten().map(|e| e.epoch).collect();
         self.planned(participant, registry.epoch, needs)?;
-        if self.prune(registry.epoch)? {
+        if self.keep_digests()? | self.prune(registry.epoch)? {
             self.persist_lists()?;
         }
-        Ok(ClaimPlan { me, batches: plan.batches, notes, missing: plan.missing })
+        Ok(ClaimPlan { me, batches: plan.batches, notes, missing: plan.missing, waiting: plan.waiting })
     }
 
     fn plan_once(&self, me: &Participant, registry: &Registry, notes: &Notes) -> Result<claims::Plan> {
@@ -91,7 +93,7 @@ impl Service {
                 "epochs": batch.iter().map(|e| e.epoch).collect::<Vec<_>>(),
                 "points": batch.iter().map(|e| e.total).sum::<u128>().to_string(),
             })).collect::<Vec<_>>(),
-            "history": self.history_gap(&plan.missing),
+            "history": self.history_gap(&plan.missing, plan.waiting),
         }))
     }
 
@@ -104,7 +106,7 @@ impl Service {
         self.require_no_other_open(participant, reference)?;
         let plan = self.claim_plan(participant)?;
         let Some(batch) = plan.batches.first() else {
-            return Err(self.nothing_claimable(&plan.missing));
+            return Err(self.nothing_claimable(&plan.missing, plan.waiting));
         };
         self.submit_batch(reference, participant, &plan.me, batch, &plan.notes)
     }
@@ -129,6 +131,8 @@ impl Service {
         let detail = json!({
             "epochs": batch.iter().map(|e| e.epoch).collect::<Vec<_>>(),
             "points": claim.epochs.iter().map(|e| e.total).sum::<u128>().to_string(),
+            // To tell later, whatever became of the transaction, whether it landed.
+            "balanceBefore": me.reward_balance.to_string(),
         });
         self.submit(reference, OperationKind::Claim, participant, accounts, instructions::claim(claim), detail)
     }
@@ -149,7 +153,7 @@ impl Service {
         let plan = self.claim_plan(participant)?;
         let Some(batch) = plan.batches.first() else {
             // Not an error on a poll: the gap closes when the indexer has the epochs.
-            return Ok(match self.history_gap(&plan.missing) {
+            return Ok(match self.history_gap(&plan.missing, plan.waiting) {
                 Value::Null => json!({ "skipped": "nothing_to_claim" }),
                 gap => json!({ "skipped": gap["code"], "history": gap }),
             });
@@ -169,7 +173,8 @@ impl Service {
     /// - `history_syncing`: the indexer is still catching up; they'll come.
     /// - `history_needed`: no indexer is running (or it failed, or it has caught up without
     ///   them); start `lez_indexer_module`, e.g. from the LEZ Explorer app.
-    pub(super) fn history_gap(&self, missing: &[u32]) -> Value {
+    /// `pointsWaiting` is a floor: what the module can already tell those epochs pay.
+    pub(super) fn history_gap(&self, missing: &[u32], waiting: u128) -> Value {
         if missing.is_empty() {
             return Value::Null;
         }
@@ -179,6 +184,7 @@ impl Service {
         json!({
             "code": code,
             "missingEpochs": missing,
+            "pointsWaiting": waiting.to_string(),
             "indexer": {
                 "state": state,
                 "indexedBlock": status.as_ref().map_or(Value::Null, |s| s["indexed_block_id"].clone()),
@@ -188,8 +194,8 @@ impl Service {
     }
 
     /// The error for a claim with no batch: nothing to claim, or only epochs still unknown.
-    fn nothing_claimable(&self, missing: &[u32]) -> DomainError {
-        match self.history_gap(missing) {
+    fn nothing_claimable(&self, missing: &[u32], waiting: u128) -> DomainError {
+        match self.history_gap(missing, waiting) {
             Value::Null => DomainError::new("nothing_to_claim", "nothing to claim"),
             gap if gap["code"] == "history_syncing" => {
                 DomainError::new("history_syncing", format!("the indexer is still catching up to epochs {missing:?}"))

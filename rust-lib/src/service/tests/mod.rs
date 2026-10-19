@@ -44,6 +44,8 @@ pub(super) struct Chain {
     reply: Option<String>,
     pub(super) settled: bool,
     pub(super) height: i64,
+    /// Every public account read, in order.
+    pub(super) public_reads: Vec<String>,
     created: u8,
 }
 
@@ -64,7 +66,9 @@ impl Lez for FakeLez {
         Ok(chain.private.keys().map(|id| (id.clone(), false)).chain(chain.public.keys().map(|id| (id.clone(), true))).collect())
     }
     fn get_account_public(&self, id: &str) -> PortResult<String> {
-        Ok(self.0.borrow().public.get(id).cloned().unwrap_or_default())
+        let mut chain = self.0.borrow_mut();
+        chain.public_reads.push(id.to_owned());
+        Ok(chain.public.get(id).cloned().unwrap_or_default())
     }
     fn get_account_private(&self, id: &str) -> PortResult<String> {
         Ok(self.0.borrow().private.get(id).map(|(account, _)| account.clone()).unwrap_or_default())
@@ -125,10 +129,14 @@ impl Store for FakeStore {
     }
 }
 
-pub(super) struct FakeFiles(String);
+/// The node's keystore at `/node/keystore.yaml`; paths allowed unless `.1` says otherwise.
+pub(super) struct FakeFiles(String, bool);
 impl Files for FakeFiles {
     fn read_secret(&self, path: &str) -> PortResult<Zeroizing<String>> {
         if path == "/node/keystore.yaml" { Ok(Zeroizing::new(self.0.clone())) } else { Err("no such file".into()) }
+    }
+    fn keystore_paths(&self) -> bool {
+        self.1
     }
 }
 
@@ -183,6 +191,8 @@ pub(super) struct World {
     pub(super) lists: FakeStore,
     /// The recorder's log.
     pub(super) log: FakeStore,
+    /// Whether the module may read keystores from paths (as with `UPLINK_KEYSTORE_PATHS=1`).
+    pub(super) keystore_paths: bool,
 }
 
 impl World {
@@ -194,7 +204,7 @@ impl World {
 
     /// A wallet with an unregistered participant, and a chain with nothing published.
     pub(super) fn empty() -> Self {
-        let world = Self { lez: FakeLez::default(), store: FakeStore::default(), lists: FakeStore::default(), log: FakeStore::default() };
+        let world = Self { lez: FakeLez::default(), store: FakeStore::default(), lists: FakeStore::default(), log: FakeStore::default(), keystore_paths: true };
         world.lez.0.borrow_mut().private.insert(PARTICIPANT.into(), (EMPTY_ACCOUNT.into(), keys_json(0x11)));
         world.deploy(&hex::encode(PROGRAM), IMAGE_ID);
         world
@@ -218,7 +228,7 @@ impl World {
             Box::new(self.store.clone()),
             Box::new(self.lists.clone()),
             Some(Box::new(self.log.clone())),
-            Box::new(FakeFiles(keystore_yaml())),
+            Box::new(FakeFiles(keystore_yaml(), self.keystore_paths)),
             Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
         )
@@ -334,7 +344,9 @@ mod cashout;
 mod claims;
 mod deployment;
 mod enrol;
+mod keys;
 mod lists;
+mod outcomes;
 mod participants;
 mod pruning;
 mod recorder;

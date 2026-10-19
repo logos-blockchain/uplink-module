@@ -35,7 +35,7 @@ fn cash_out_burns_the_balance_into_a_receipt_only_the_node_can_find() {
     assert_eq!(world.sent().len(), 1, "nothing sent again");
 
     let code = service.payout_code(PARTICIPANT, 0, "/node/keystore.yaml").unwrap();
-    let body = code["code"].as_str().unwrap().strip_prefix(crate::service::cashout::PAYOUT_PREFIX).unwrap();
+    let body = code["code"].as_str().unwrap().strip_prefix(crate::domain::cashout::PAYOUT_PREFIX).unwrap();
     use base64::Engine as _;
     let opening: BTreeMap<String, String> =
         serde_json::from_slice(&base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(body).unwrap()).unwrap();
@@ -73,4 +73,81 @@ fn receipts_are_listed_without_the_key_once_known() {
     assert_eq!(known["receipts"][0]["points"], "5");
     assert_eq!(known["receipts"][0]["account"], op["detail"]["receipt"]);
     assert_eq!(service.keystore_node("/node/keystore.yaml").unwrap()["node"], codec::node_hex(&node_key().node()));
+}
+
+/// The node's receipt secret, as the Blockchain app would hand it in (hex).
+fn receipt_secret() -> String {
+    hex::encode(*crate::domain::cashout::receipt_secret(&[1; 32]))
+}
+
+#[test]
+fn a_cash_out_with_the_handed_in_secret_matches_one_with_the_keystore() {
+    let world = World::new();
+    let me = node_key().node();
+    let mut participant = Participant::new(me, None);
+    participant.reward_balance = 9;
+    world.set_participant(participant);
+
+    let mut service = world.service();
+    let with_secret = service.cash_out_with_secret(&reference(9), PARTICIPANT, &receipt_secret()).unwrap();
+    let participant_id = codec::account(PARTICIPANT).unwrap();
+    let with_key = crate::domain::cashout::receipt(program(), me, crate::domain::cashout::blinding_factor(&node_key(), program(), participant_id, 0));
+    assert_eq!(with_secret["detail"]["receipt"], codec::account_hex(&with_key), "the receipt the keystore would give");
+
+    // It settles; its payout code needs only the node's signature, not the secret again.
+    world.lez.0.borrow_mut().settled = true;
+    service.status(&reference(9)).unwrap();
+    let message = service.payout_message(PARTICIPANT, 0, "").unwrap()["message"].as_str().unwrap().to_owned();
+    let signature = hex::encode(node_key().sign(message.as_bytes()));
+    let code = service.payout_code_with_signature(PARTICIPANT, 0, &signature).unwrap();
+    world.lez.0.borrow_mut().public.insert(codec::account_hex(&with_key), account_json(&State::CashOut { points: 9 }.to_data().into_inner()));
+    assert_eq!(code["code"], service.payout_code(PARTICIPANT, 0, "/node/keystore.yaml").unwrap()["code"], "the same code either way");
+
+    let forged = hex::encode(NodeKey::from_secret(&[2; 32]).sign(message.as_bytes()));
+    assert_eq!(service.payout_code_with_signature(PARTICIPANT, 0, &forged).unwrap_err().code, "bad_signature");
+}
+
+#[test]
+fn a_different_receipt_secret_is_refused_before_anything_is_sent() {
+    let world = World::new();
+    let mut participant = Participant::new(node_key().node(), None);
+    participant.reward_balance = 9;
+    world.set_participant(participant);
+    let mut service = world.service();
+    service.receipts_with_secret(PARTICIPANT, &receipt_secret()).unwrap(); // first use: remembered
+
+    let wrong = hex::encode([7; 32]);
+    assert_eq!(service.cash_out_with_secret(&reference(9), PARTICIPANT, &wrong).unwrap_err().code, "receipt_secret_mismatch");
+    assert_eq!(service.receipts_with_secret(PARTICIPANT, &wrong).unwrap_err().code, "receipt_secret_mismatch");
+    assert_eq!(service.cash_out_with_secret(&reference(9), PARTICIPANT, "not hex").unwrap_err().code, "bad_receipt_secret");
+    assert!(world.sent().is_empty());
+}
+
+#[test]
+fn receipts_found_before_fingerprints_were_kept_still_guard_the_secret() {
+    let world = World::new();
+    let mut participant = Participant::new(node_key().node(), None);
+    participant.reward_balance = 9;
+    world.set_participant(participant);
+    let mut service = world.service();
+    service.cash_out(&reference(9), PARTICIPANT, "/node/keystore.yaml").unwrap();
+    world.lez.0.borrow_mut().settled = true;
+    service.status(&reference(9)).unwrap();
+    // As an earlier version saved it: a known receipt, no fingerprint.
+    let saved = world.store.load().unwrap().unwrap();
+    let mut state: Value = serde_json::from_str(&saved).unwrap();
+    state["deployments"][hex::encode(PROGRAM)]["participants"][PARTICIPANT]["receiptFingerprint"] = Value::Null;
+    world.store.save(&state.to_string()).unwrap();
+
+    let mut service = world.service();
+    assert_eq!(service.receipts_with_secret(PARTICIPANT, &hex::encode([7; 32])).unwrap_err().code, "receipt_secret_mismatch");
+    assert_eq!(service.payout_message(PARTICIPANT, 0, &receipt_secret()).unwrap()["receipt"].as_str().map(str::len), Some(64));
+}
+
+#[test]
+fn a_receipt_the_module_never_saw_needs_the_secret_for_its_payout_message() {
+    let world = World::new();
+    world.set_participant(Participant::new(node_key().node(), None));
+    let mut service = world.service();
+    assert_eq!(service.payout_message(PARTICIPANT, 0, "").unwrap_err().code, "receipt_secret_needed");
 }

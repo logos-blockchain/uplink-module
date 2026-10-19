@@ -119,3 +119,20 @@ fn a_participant_that_never_registered_does_not_hold_sets() {
     assert_eq!(service.claimable(PARTICIPANT).unwrap_err().code, "not_registered");
     assert_eq!(kept(&world), vec![4, 5]);
 }
+
+#[test]
+fn points_known_but_not_yet_claimable_are_reported_as_waiting() {
+    let world = World::new();
+    let me = enrolled(&world);
+    let old = BTreeSet::from([me, REFERRER]);
+    world.archive(2, &old);
+    world.set_registry(5, &[REFERRER, me], &[REFERRER]);
+    let mut service = world.service_with(Some(Box::new(Recording(vec![publish_tx(2, old.clone())], Rc::default()))));
+    service.activity(&[codec::node_hex(&me)], 4).unwrap(); // epoch 2 noted, its set dropped
+
+    // A late credit for epoch 2, and now no indexer: the set can't come back yet.
+    world.add_note(0x41, State::Credit { recipient_node: me, amount: 4, epoch: 2, active_digest: active_digest(&old) });
+    let history = world.service().claimable(PARTICIPANT).unwrap()["history"].clone();
+    assert_eq!((history["code"].clone(), history["missingEpochs"].clone()), (json!("history_needed"), json!([2])));
+    assert_eq!(history["pointsWaiting"], "4");
+}

@@ -36,6 +36,9 @@ impl Service {
                 })
                 .collect()
         };
+        if self.keep_digests()? {
+            self.persist_lists()?;
+        }
         let mut by_epoch = answers(self);
         // One trip to the indexer at most, for the epochs nothing here can answer.
         let unknown: Vec<u32> = epochs.iter().zip(&by_epoch).filter(|(_, m)| m.contains(&-1)).map(|((e, _), _)| *e).collect();

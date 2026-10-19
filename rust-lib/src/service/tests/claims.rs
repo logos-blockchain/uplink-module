@@ -214,3 +214,30 @@ fn auto_claim_retries_a_failed_batch_under_its_reference_waiting_longer_each_tim
     assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["claimed"]["status"], "pending");
     assert_eq!(service.operations(PARTICIPANT).unwrap()["operations"].as_array().unwrap().len(), 1, "one record, not one per attempt");
 }
+
+#[test]
+fn each_epochs_digest_is_read_from_the_chain_once() {
+    let world = World::new();
+    let me = enrolled(&world);
+    let child = NodeId::new([3; 32]);
+    world.add_note(0x31, State::Child { node: child, referrer: me, since: 2 });
+    let mut service = world.service();
+    // The child is never active, so it stays unsettled and every plan looks back to epoch 2.
+    for epoch in 2..=10 {
+        world.set_registry(epoch, &[REFERRER, me, child], &[me]);
+        service.registry().unwrap();
+    }
+    let archive_reads = || {
+        let archives: Vec<String> = (1..=10).map(|e| codec::account_hex(&epoch_account(program(), e))).collect();
+        world.lez.0.borrow().public_reads.iter().filter(|id| archives.contains(id)).count()
+    };
+
+    service.claimable(PARTICIPANT).unwrap();
+    assert_eq!(archive_reads(), 9, "epochs 2-10, once");
+    for _ in 0..3 {
+        service.claimable(PARTICIPANT).unwrap();
+    }
+    assert_eq!(archive_reads(), 9, "and never again");
+    world.service().claimable(PARTICIPANT).unwrap();
+    assert_eq!(archive_reads(), 9, "not even after a restart");
+}

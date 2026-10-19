@@ -155,8 +155,21 @@ impl Store for FileStore {
             std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
         let tmp = self.path.with_extension("json.tmp");
-        std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
+        // On disk before the rename, and the rename itself on disk after it: otherwise a crash
+        // can leave the new name pointing at an empty file on some filesystems.
+        let write = || -> std::io::Result<()> {
+            use std::io::Write as _;
+            let mut file = std::fs::File::create(&tmp)?;
+            file.write_all(json.as_bytes())?;
+            file.sync_all()
+        };
+        write().map_err(|e| format!("{}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        if let Some(dir) = self.path.parent() {
+            // Best effort: not every platform can open a directory to sync it.
+            let _ = std::fs::File::open(dir).and_then(|d| d.sync_all());
+        }
+        Ok(())
     }
 
     fn set_aside(&self) -> PortResult<String> {
@@ -168,6 +181,9 @@ impl Store for FileStore {
 }
 
 pub struct LocalFiles;
+
+/// Set to `1` where the module may read keystores from paths (`Files::keystore_paths`).
+pub const KEYSTORE_PATHS_ENV: &str = "UPLINK_KEYSTORE_PATHS";
 
 /// A node's keystore.yaml is a few KB; anything far bigger is the wrong file.
 const MAX_SECRET_FILE: u64 = 64 * 1024;
@@ -183,6 +199,10 @@ impl Files for LocalFiles {
             return Err(format!("{path}: larger than {} KB, not a keystore", MAX_SECRET_FILE / 1024));
         }
         Ok(text)
+    }
+
+    fn keystore_paths(&self) -> bool {
+        std::env::var(KEYSTORE_PATHS_ENV).is_ok_and(|v| v == "1")
     }
 }
 
