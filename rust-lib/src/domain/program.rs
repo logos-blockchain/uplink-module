@@ -1,7 +1,7 @@
 //! The referral program binary the module proves with, and the check that a deployment runs it.
 //!
-//! `assets/referral.bin` is uplink's reproducibly built `artifacts/programs/referral/referral.bin`,
-//! copied from the commit `referral_core` is pinned to. A program account holds a
+//! The binary is uplink's reproducibly built `artifacts/programs/referral/referral.bin` at the
+//! commit `referral_core` is pinned to, found by build.rs (`UPLINK_REFERRAL_BIN`). A program account holds a
 //! [`ProgramHeader`] in the loader's shard, whose `image_id` the loader computed from the
 //! deployed bytecode, so comparing it with ours shows whether the deployment is this program.
 
@@ -11,7 +11,7 @@ use lee_core::program::{PROGRAM_LOADER_ACCOUNT_ID, ProgramHeader, ProgramId};
 
 use super::{DomainError, Result, codec};
 
-pub const EMBEDDED: &[u8] = include_bytes!("../../assets/referral.bin");
+pub const EMBEDDED: &[u8] = include_bytes!(env!("UPLINK_REFERRAL_BIN"));
 
 /// The binary and its image id, computed once on first use.
 pub struct Binary {
@@ -76,18 +76,10 @@ pub(crate) fn header_json(image_id: ProgramId) -> String {
 
 #[cfg(test)]
 mod tests {
-    use sha2::{Digest, Sha256};
-
     use super::*;
 
-    /// Moving the pin means copying the new binary in: this catches a pin moved without it.
     #[test]
-    fn the_embedded_binary_is_uplinks_at_the_pinned_commit() {
-        assert_eq!(
-            hex::encode(Sha256::digest(EMBEDDED)),
-            "39ab20f193373a8185a364f8db678fc6626b2ccd21e93bc4eb1c048072db2726",
-            "assets/referral.bin is not uplink 8021f33's artifacts/programs/referral/referral.bin"
-        );
+    fn the_embedded_binary_is_a_program_with_an_image_id() {
         Binary::embedded().image_id().expect("the embedded binary has an image id");
     }
 
