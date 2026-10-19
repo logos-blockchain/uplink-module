@@ -4,7 +4,7 @@ use referral_core::{NodeId, ORACLE_ACCOUNT_ID};
 use serde_json::{Value, json};
 
 use super::saved::OperationKind;
-use super::Service;
+use super::{Service, participant_id};
 use crate::domain::keystore::{self, NodeKey};
 use crate::domain::{DomainError, Result, codec, enrolment, instructions};
 use crate::ports::AccountEntry;
@@ -21,6 +21,7 @@ impl Service {
 
     /// The bytes the node signs to join, for callers that sign elsewhere.
     pub fn enrolment_message(&self, participant: &str, node: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         let referrer = self.referrer_of(participant)?;
         let message = enrolment::message(self.program()?, codec::node(node)?, codec::account(participant)?, referrer);
         Ok(json!({ "message": hex::encode(message), "referrer": referrer.as_ref().map(codec::node_hex) }))
@@ -31,6 +32,11 @@ impl Service {
     /// key is refused, so a wrong file can't enrol another node. `""` takes the keystore's
     /// BlendSigning key. The key is wiped as soon as the signature is made.
     pub fn enrol(&mut self, reference: &str, participant: &str, keystore_path: &str, node: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
+        // Before the keystore: a repeat needs no key.
+        if let Some(existing) = self.replay(reference, OperationKind::Register, participant)? {
+            return Ok(existing);
+        }
         let referrer = self.referrer_of(participant)?;
         let expected = codec::optional_node(node)?;
         let (node, signature) = {
@@ -43,6 +49,10 @@ impl Service {
     }
 
     pub fn enrol_with_signature(&mut self, reference: &str, participant: &str, node: &str, signature: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
+        if let Some(existing) = self.replay(reference, OperationKind::Register, participant)? {
+            return Ok(existing);
+        }
         let terms = self.require_terms()?;
         let program = self.program()?;
         let participant_id = codec::account(participant)?;
@@ -82,7 +92,7 @@ impl Service {
 
         let epoch = registry.epoch;
         let instruction = instructions::register(node, referrer_keys, signature, registry.registered_nodes, epoch);
-        let record = self.deployment_mut()?.participants.entry(participant.to_lowercase()).or_default();
+        let record = self.deployment_mut()?.participants.entry(participant.to_owned()).or_default();
         record.node = Some(codec::node_hex(&node));
         record.terms = Some(super::saved::TermsAcceptance { node: Some(codec::node_hex(&node)), ..terms });
         self.submit(

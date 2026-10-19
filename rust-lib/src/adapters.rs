@@ -145,13 +145,31 @@ impl Store for FileStore {
         std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
     }
+
+    fn set_aside(&self) -> PortResult<String> {
+        let ms = SystemClock.now_ms();
+        let aside = self.path.with_extension(format!("json.unreadable-{ms}"));
+        std::fs::rename(&self.path, &aside).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        Ok(aside.display().to_string())
+    }
 }
 
 pub struct LocalFiles;
 
+/// A node's keystore.yaml is a few KB; anything far bigger is the wrong file.
+const MAX_SECRET_FILE: u64 = 64 * 1024;
+
 impl Files for LocalFiles {
     fn read_secret(&self, path: &str) -> PortResult<Zeroizing<String>> {
-        std::fs::read_to_string(path).map(Zeroizing::new).map_err(|e| format!("{path}: {e}"))
+        use std::io::Read as _;
+        let file = std::fs::File::open(path).map_err(|e| format!("{path}: {e}"))?;
+        // Allocated once, so no reallocation leaves an unwiped copy behind.
+        let mut text = Zeroizing::new(String::with_capacity(MAX_SECRET_FILE as usize + 1));
+        file.take(MAX_SECRET_FILE + 1).read_to_string(&mut text).map_err(|e| format!("{path}: {e}"))?;
+        if text.len() as u64 > MAX_SECRET_FILE {
+            return Err(format!("{path}: larger than {} KB, not a keystore", MAX_SECRET_FILE / 1024));
+        }
+        Ok(text)
     }
 }
 

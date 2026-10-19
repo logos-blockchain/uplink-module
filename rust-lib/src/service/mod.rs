@@ -39,6 +39,16 @@ pub struct Service {
     /// The program account last found running `binary`, this session.
     checked: Option<String>,
     saved: Saved,
+    /// Set when the saved state couldn't be used at startup; `info()` reports it.
+    state_problem: Option<StateProblem>,
+}
+
+/// What went wrong with the saved state at startup.
+enum StateProblem {
+    /// It wasn't valid; it was moved to `aside` and the module started empty.
+    SetAside { aside: String },
+    /// It couldn't be read (or moved). Nothing is saved, so it isn't overwritten.
+    Unreadable { error: String },
 }
 
 pub(crate) fn port(error: String) -> DomainError {
@@ -54,13 +64,8 @@ impl Service {
         clock: Box<dyn Clock>,
         binary: Binary,
     ) -> Self {
-        let saved = store
-            .load()
-            .ok()
-            .flatten()
-            .and_then(|json| serde_json::from_str(&json).ok())
-            .unwrap_or_default();
-        Self { lez, history, store, files, clock, binary, checked: None, saved }
+        let (saved, state_problem) = load(store.as_ref());
+        Self { lez, history, store, files, clock, binary, checked: None, saved, state_problem }
     }
 
     /// The current deployment's saved state (empty if none is configured or seen yet).
@@ -75,9 +80,34 @@ impl Service {
     }
 
     fn persist(&self) -> Result<()> {
+        if let Some(StateProblem::Unreadable { error }) = &self.state_problem {
+            return Err(DomainError::new("state_unreadable", format!("the saved state can't be read, so nothing is saved over it: {error}")));
+        }
         let json = serde_json::to_string(&self.saved).expect("saved state serializes");
         self.store.save(&json).map_err(|e| DomainError::new("store", e))
     }
+}
+
+/// The saved state, or an empty one and why. A file that doesn't parse is moved aside
+/// rather than overwritten by the next save; one that can't be read at all is left alone.
+fn load(store: &dyn Store) -> (Saved, Option<StateProblem>) {
+    match store.load() {
+        Ok(None) => (Saved::default(), None),
+        Ok(Some(json)) => match serde_json::from_str(&json) {
+            Ok(saved) => (saved, None),
+            Err(_) => match store.set_aside() {
+                Ok(aside) => (Saved::default(), Some(StateProblem::SetAside { aside })),
+                Err(error) => (Saved::default(), Some(StateProblem::Unreadable { error })),
+            },
+        },
+        Err(error) => (Saved::default(), Some(StateProblem::Unreadable { error })),
+    }
+}
+
+/// A participant (a private account in the wallet) as everything here keys and passes it:
+/// lowercase hex, like `lez_core`. Callers may give hex in any case, with `0x`, or base58.
+fn participant_id(participant: &str) -> Result<String> {
+    codec::account_any(participant).map(|id| codec::account_hex(&id))
 }
 
 /// References are caller-chosen 32-byte hex ids; resubmitting one is idempotent.

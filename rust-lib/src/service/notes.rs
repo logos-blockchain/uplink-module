@@ -4,7 +4,7 @@ use lee_core::account::AccountId;
 use referral_core::{NodeId, State};
 use serde_json::{Value, json};
 
-use super::{Service, port};
+use super::{Service, participant_id, port};
 use crate::domain::{DomainError, Result, codec, state};
 
 impl Service {
@@ -40,6 +40,7 @@ impl Service {
     }
 
     pub fn notes(&mut self, participant: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         let me = self.read_participant(participant)?;
         let notes = self.discover_notes(participant, me.node)?;
         self.remember_joins(participant, &notes)?;
@@ -58,7 +59,7 @@ impl Service {
         if joins.is_empty() {
             return Ok(());
         }
-        let record = self.deployment_mut()?.participants.entry(participant.to_lowercase()).or_default();
+        let record = self.deployment_mut()?.participants.entry(participant.to_owned()).or_default();
         let mut changed = false;
         for (node, since) in joins {
             if !record.children_since.contains_key(&node) {
@@ -75,7 +76,7 @@ impl Service {
     pub(super) fn children_since(&self, participant: &str) -> std::collections::BTreeMap<String, u32> {
         self.deployment()
             .participants
-            .get(&participant.to_lowercase())
+            .get(participant)
             .map(|record| record.children_since.clone())
             .unwrap_or_default()
     }

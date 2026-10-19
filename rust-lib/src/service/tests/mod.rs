@@ -43,6 +43,7 @@ pub(super) struct Chain {
     sent: Vec<(Vec<AccountEntry>, Vec<u8>)>,
     reply: Option<String>,
     pub(super) settled: bool,
+    pub(super) height: i64,
     created: u8,
 }
 
@@ -79,7 +80,7 @@ impl Lez for FakeLez {
         Ok(self.0.borrow().labels.get(label).cloned().unwrap_or_default())
     }
     fn get_current_block_height(&self) -> PortResult<i64> {
-        Ok(42)
+        Ok(self.0.borrow().height)
     }
     fn sync_to_block(&self, _: i64) -> PortResult<()> {
         Ok(())
@@ -96,15 +97,31 @@ impl Lez for FakeLez {
     }
 }
 
+#[derive(Default)]
+pub(super) struct Disk {
+    pub(super) json: Option<String>,
+    /// What `set_aside` moved away, oldest first.
+    pub(super) aside: Vec<String>,
+    /// When set, `load` fails with it, like a file without read permission.
+    pub(super) unreadable: Option<String>,
+}
+
 #[derive(Clone, Default)]
-pub(super) struct FakeStore(Rc<RefCell<Option<String>>>);
+pub(super) struct FakeStore(pub(super) Rc<RefCell<Disk>>);
 impl Store for FakeStore {
     fn load(&self) -> PortResult<Option<String>> {
-        Ok(self.0.borrow().clone())
+        let disk = self.0.borrow();
+        disk.unreadable.clone().map_or_else(|| Ok(disk.json.clone()), Err)
     }
     fn save(&self, json: &str) -> PortResult<()> {
-        *self.0.borrow_mut() = Some(json.to_owned());
+        self.0.borrow_mut().json = Some(json.to_owned());
         Ok(())
+    }
+    fn set_aside(&self) -> PortResult<String> {
+        let mut disk = self.0.borrow_mut();
+        let json = disk.json.take().ok_or("nothing to set aside")?;
+        disk.aside.push(json);
+        Ok(format!("aside-{}", disk.aside.len()))
     }
 }
 
@@ -146,7 +163,7 @@ pub(super) const REFERRER: NodeId = NodeId::new([8; 32]);
 
 pub(super) struct World {
     pub(super) lez: FakeLez,
-    store: FakeStore,
+    pub(super) store: FakeStore,
 }
 
 impl World {
@@ -169,16 +186,21 @@ impl World {
     }
 
     fn service_with(&self, history: Option<Box<dyn History>>) -> Service {
-        let mut service = Service::new(
+        let mut service = self.started(history);
+        service.configure(&hex::encode(PROGRAM)).unwrap();
+        service
+    }
+
+    /// A service as the module starts it, before anything is configured.
+    pub(super) fn started(&self, history: Option<Box<dyn History>>) -> Service {
+        Service::new(
             Box::new(self.lez.clone()),
             history,
             Box::new(self.store.clone()),
             Box::new(FakeFiles(keystore_yaml())),
             Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
-        );
-        service.configure(&hex::encode(PROGRAM)).unwrap();
-        service
+        )
     }
 
     /// A program running `image_id`, deployed at `account`.
@@ -273,4 +295,5 @@ mod claims;
 mod deployment;
 mod enrol;
 mod participants;
+mod saved_state;
 mod terms;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::service::operations::INCLUSION_BLOCKS;
 
 #[test]
 fn joining_needs_the_terms_accepted() {
@@ -153,4 +154,86 @@ fn each_deployment_keeps_its_own_state() {
     assert_eq!(service.enrolment_message(PARTICIPANT, &node).unwrap()["referrer"], codec::node_hex(&REFERRER));
     assert_eq!(service.terms_status()["accepted"], true);
     assert_eq!(service.info()["deployments"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn a_transaction_no_block_includes_fails_after_the_deadline_and_unblocks_the_participant() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    world.lez.0.borrow_mut().height = 1_000;
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap();
+
+    world.lez.0.borrow_mut().height = 1_000 + INCLUSION_BLOCKS;
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "pending", "still within the deadline");
+    assert_eq!(service.enrol(&reference(2), PARTICIPANT, "/node/keystore.yaml", "").unwrap_err().code, "in_flight");
+
+    world.lez.0.borrow_mut().height += 1;
+    let dropped = service.status(&reference(1)).unwrap();
+    assert_eq!(dropped["status"], "failed");
+    assert!(dropped["error"].as_str().unwrap().contains("blocks"));
+    assert_eq!(service.enrol(&reference(2), PARTICIPANT, "/node/keystore.yaml", "").unwrap()["status"], "pending");
+}
+
+#[test]
+fn a_register_found_on_chain_settles_even_if_its_transaction_is_not() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap();
+
+    enrolled(&world);
+    world.lez.0.borrow_mut().height = INCLUSION_BLOCKS + 1;
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "settled");
+}
+
+#[test]
+fn a_chain_reset_under_a_pending_transaction_fails_it() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    world.lez.0.borrow_mut().height = 500;
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap();
+
+    world.lez.0.borrow_mut().height = 3;
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "failed");
+}
+
+#[test]
+fn an_operation_saved_without_a_height_starts_its_deadline_at_the_first_check() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap();
+    // As an older version saved it.
+    let saved = world.store.load().unwrap().unwrap();
+    assert!(saved.contains("\"pendingSinceBlock\":0"));
+    let saved = saved.replace("\"pendingSinceBlock\":0", "\"pendingSinceBlock\":null");
+    world.store.save(&saved).unwrap();
+
+    let mut restarted = world.service();
+    world.lez.0.borrow_mut().height = 10_000;
+    assert_eq!(restarted.status(&reference(1)).unwrap()["status"], "pending", "counts from now");
+    world.lez.0.borrow_mut().height = 10_000 + INCLUSION_BLOCKS + 1;
+    assert_eq!(restarted.status(&reference(1)).unwrap()["status"], "failed");
+}
+
+#[test]
+fn repeating_a_settled_enrolment_returns_its_record_without_the_key() {
+    let world = World::new();
+    let mut service = world.service();
+    accept_terms(&mut service);
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", "").unwrap();
+    world.lez.0.borrow_mut().settled = true;
+    enrolled(&world);
+
+    // The keystore path is wrong on purpose: a repeat must not read it.
+    let again = service.enrol(&reference(1), PARTICIPANT, "/no/such/keystore.yaml", "").unwrap();
+    assert_eq!((again["reference"].clone(), again["status"].clone()), (json!(reference(1)), json!("settled")));
+    let signature = hex::encode([0; 64]);
+    let node = codec::node_hex(&node_key().node());
+    assert_eq!(service.enrol_with_signature(&reference(1), PARTICIPANT, &node, &signature).unwrap()["status"], "settled");
+    assert_eq!(world.sent().len(), 1);
+    // A new reference still gets the real answer.
+    assert_eq!(service.enrol(&reference(2), PARTICIPANT, "/node/keystore.yaml", "").unwrap_err().code, "already_registered");
 }

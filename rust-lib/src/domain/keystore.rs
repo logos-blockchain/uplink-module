@@ -23,6 +23,16 @@ use super::{DomainError, Result};
 
 pub const BLEND_SIGNING: &str = "BlendSigning";
 
+/// A YAML error without its message: serde_yaml quotes the value it failed on, which here
+/// can be a secret key. The position is enough to find the problem.
+fn bad_yaml(error: &serde_yaml::Error) -> DomainError {
+    let at = error
+        .location()
+        .map(|at| format!(" at line {}, column {}", at.line(), at.column()))
+        .unwrap_or_default();
+    DomainError::new("bad_keystore", format!("the keystore is not valid YAML{at}"))
+}
+
 #[derive(Deserialize)]
 enum SecretKey {
     Ed25519(Zeroizing<String>),
@@ -44,8 +54,7 @@ struct PublicKeys {
 
 /// The node a keystore is for: its `BlendSigning` public key. Reads no secret key.
 pub fn blend_signing_public(keystore_yaml: &str) -> Result<NodeId> {
-    let keys: PublicKeys =
-        serde_yaml::from_str(keystore_yaml).map_err(|e| DomainError::new("bad_keystore", format!("{e}")))?;
+    let keys: PublicKeys = serde_yaml::from_str(keystore_yaml).map_err(|e| bad_yaml(&e))?;
     let hex_key = keys
         .public_keys
         .get(BLEND_SIGNING)
@@ -83,8 +92,7 @@ impl NodeKey {
 /// The Ed25519 key for `node`, or the `BlendSigning` entry when `node` is unknown.
 /// Matching by public key means a renamed title can't make it sign for another node.
 pub fn blend_signing_key(keystore_yaml: &str, node: Option<NodeId>) -> Result<NodeKey> {
-    let keystore: Keystore = serde_yaml::from_str(keystore_yaml)
-        .map_err(|e| DomainError::new("bad_keystore", format!("{e}")))?;
+    let keystore: Keystore = serde_yaml::from_str(keystore_yaml).map_err(|e| bad_yaml(&e))?;
 
     let mut by_title = None;
     for (title, secret) in &keystore.secret_keys {
@@ -154,5 +162,18 @@ mod tests {
         let err = blend_signing_key(&keystore(), Some(NodeId::new([9; 32]))).err().unwrap();
         assert_eq!(err.code, "keystore_mismatch");
         assert_eq!(blend_signing_key("secret_keys: [", None).err().unwrap().code, "bad_keystore");
+    }
+
+    #[test]
+    fn errors_never_quote_the_keystore() {
+        let secret = hex::encode([7; 32]);
+        // A secret where a map is expected, under each section the two readers parse.
+        for yaml in [format!("secret_keys: {secret}\n"), format!("public_keys: {secret}\n")] {
+            let raw = serde_yaml::from_str::<Keystore>(&yaml).err().or(serde_yaml::from_str::<PublicKeys>(&yaml).err());
+            assert!(raw.unwrap().to_string().contains(&secret), "serde_yaml's own message quotes the value");
+            for err in [blend_signing_key(&yaml, None).err(), blend_signing_public(&yaml).err()].into_iter().flatten() {
+                assert!(!err.message.contains(&secret[..16]), "{}", err.message);
+            }
+        }
     }
 }

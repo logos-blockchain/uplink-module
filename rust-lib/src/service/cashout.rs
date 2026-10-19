@@ -9,7 +9,7 @@ use lee_core::account::AccountId;
 use serde_json::{Value, json};
 
 use super::saved::{KnownReceipt, Operation, OperationKind};
-use super::{Service, port};
+use super::{Service, participant_id, port};
 use crate::domain::keystore::NodeKey;
 use crate::domain::{DomainError, Result, cashout, codec, instructions, state};
 use crate::ports::AccountEntry;
@@ -50,6 +50,7 @@ impl Service {
     /// The participant's receipts. With a keystore path they're found on-chain with the node
     /// key and remembered; with `""` the remembered list comes back without touching the key.
     pub fn receipts(&mut self, participant: &str, keystore_path: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         if !keystore_path.trim().is_empty() {
             let key = self.participant_key(participant, keystore_path)?;
             let (found, _) = self.scan_receipts(&key, participant)?;
@@ -57,16 +58,20 @@ impl Service {
                 .iter()
                 .map(|r| KnownReceipt { index: r.index, account: codec::account_hex(&r.account), points: r.points.to_string() })
                 .collect();
-            self.deployment_mut()?.participants.entry(participant.to_lowercase()).or_default().receipts = known;
+            self.deployment_mut()?.participants.entry(participant.to_owned()).or_default().receipts = known;
             self.persist()?;
         }
-        let known = self.deployment().participants.get(&participant.to_lowercase()).map(|r| r.receipts.clone()).unwrap_or_default();
+        let known = self.deployment().participants.get(participant).map(|r| r.receipts.clone()).unwrap_or_default();
         Ok(json!({
             "receipts": known.iter().map(|r| json!({ "index": r.index, "account": r.account, "points": r.points })).collect::<Vec<_>>()
         }))
     }
 
     pub fn cash_out(&mut self, reference: &str, participant: &str, keystore_path: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
+        if let Some(existing) = self.replay(reference, OperationKind::CashOut, participant)? {
+            return Ok(existing);
+        }
         self.require_no_other_open(participant, reference)?;
         let me = self.read_participant(participant)?;
         if me.reward_balance == 0 {
@@ -79,7 +84,7 @@ impl Service {
             (index, cashout::receipt(self.program()?, me.node, blinding), blinding)
         };
         let accounts = vec![
-            AccountEntry::Own(participant.to_lowercase()),
+            AccountEntry::Own(participant.to_owned()),
             AccountEntry::PublicNoSign(codec::account_hex(&receipt)),
         ];
         let instruction = instructions::cash_out(me.node, me.reward_balance, blinding);
@@ -96,6 +101,7 @@ impl Service {
     /// The code the user pastes into the payout form: the receipt's opening (program,
     /// node, blinding factor), signed by the node so a copied code is useless to others.
     pub fn payout_code(&self, participant: &str, index: u64, keystore_path: &str) -> Result<Value> {
+        let participant = &participant_id(participant)?;
         let key = self.participant_key(participant, keystore_path)?;
         let (receipts, _) = self.scan_receipts(&key, participant)?;
         let receipt = receipts
@@ -128,7 +134,7 @@ impl Service {
         else {
             return Ok(());
         };
-        let record = self.deployment_mut()?.participants.entry(operation.participant.clone()).or_default();
+        let record = self.deployment_mut()?.participants.entry(operation.participant.to_owned()).or_default();
         if !record.receipts.iter().any(|r| r.index == index) {
             record.receipts.push(KnownReceipt { index, account: account.to_owned(), points: points.to_owned() });
             record.receipts.sort_by_key(|r| r.index);

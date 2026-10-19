@@ -42,12 +42,13 @@ enrolment, a payout code, or a receipt secret.
 ## API
 
 Every method returns JSON: `{"ok": true, …}` or `{"ok": false, "code", "error"}`. Ids are
-hex. `reference` is a caller-chosen 32-byte hex id; resubmitting one returns its record
+hex. A `participant` may also be given in base58, upper case or with `0x`; replies always
+use lowercase hex. `reference` is a caller-chosen 32-byte hex id; resubmitting one returns its record
 instead of sending again.
 
 | Method | Returns |
 |---|---|
-| `info()` | selected program account, terms version |
+| `info()` | selected program account, terms version, deployments seen, `stateProblem` (below) |
 | `configure(program_account)` | same as `info`; `""` clears it |
 | `check_program()` | `{programAccount, imageId}` if that account runs this module's program; else `not_configured` / `program_not_deployed` / `program_mismatch` |
 | `terms()` / `terms_status()` / `accept_terms(version, sha256)` | the text + hash / whether accepted / acceptance |
@@ -60,10 +61,10 @@ instead of sending again.
 | `enrol(reference, participant, keystore_path, node)` | the Register operation; `node` = the running node, so a keystore for another node is refused (`""` = the keystore's BlendSigning key) |
 | `enrolment_message(participant, node)` / `enrol_with_signature(reference, participant, node, signature)` | for signing elsewhere |
 | `keystore_node(keystore_path)` | the node a keystore is for, from its public keys only |
-| `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed` |
+| `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`; a transaction no block includes within 100 blocks fails (a Register found on chain settles instead), so it can be retried |
 | `sync()` / `notes(participant)` | syncs the wallet / new referrals and credits |
 | `claimable(participant)` / `claim(reference, participant)` | points by batch / submits the oldest batch (≤16 epochs) |
-| `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll |
+| `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll. A failed batch is retried under the same reference after 10, 20, 40, … (up to 640) blocks: `{skipped: "backoff", retryAtBlock}` meanwhile |
 | `cash_out(reference, participant, keystore_path)` | the CashOut operation (whole balance) |
 | `receipts(participant, keystore_path)` | receipts; with `""` the ones already known, without reading the key |
 | `payout_code(participant, index, keystore_path)` | the signed `uplink-payout-v2:` code |
@@ -108,10 +109,21 @@ Each program account is its own deployment (devnet, testnet, …) with its own s
 `uplink_state.json` (the module's data directory): invitations, operations, epoch lists,
 join epochs and terms acceptance. Calling `configure` with another program account switches
 to it; switching back finds the earlier state as it was. `info()` lists the deployments seen.
+If the file doesn't parse, the module moves it aside (`uplink_state.json.unreadable-<ms>`),
+starts empty, and `info()` reports `stateProblem: {code: "state_set_aside", file}`. If it
+can't be read at all, nothing is saved over it: calls that save fail with `state_unreadable`
+until it's fixed.
 
 Sending a private transaction means proving it, which takes minutes without
 `RISC0_DEV_MODE`, so the module waits up to 30 minutes for `lez_core` there; callers should
 call `enrol`, `claim`, `auto_claim` and `cash_out` without the default 20 s timeout.
+
+While a send is proving, the module answers nothing else, and that's by design rather than
+a missing `"concurrency": "multi"`. `lez_core` runs one call at a time and its wallet stays
+locked through the proof (`wallet_ffi_send_generic_private_transaction`), so any other call
+that reads the wallet would wait behind it anyway. Callers should not poll during a send
+(the Uplink app pauses its refresh); the result comes back from the send itself, or from
+`status(reference)` afterwards.
 
 ## Build and test
 
