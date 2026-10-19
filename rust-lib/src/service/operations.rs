@@ -120,6 +120,9 @@ impl Service {
         };
         if settled {
             self.deployment_mut()?.operations.get_mut(&reference).expect("exists").status = OperationStatus::Settled;
+            if operation.kind == OperationKind::CashOut {
+                self.remember_receipt(&operation)?;
+            }
             self.persist()?;
         }
         Ok(operation_json(&self.deployment().operations[&reference]))

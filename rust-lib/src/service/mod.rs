@@ -2,6 +2,7 @@
 //! (`serde_json::Value`) or a `DomainError`; `glue` turns those into the module's replies.
 
 mod activity;
+mod cashout;
 mod claims;
 mod deployment;
 mod enrol;

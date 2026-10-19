@@ -32,10 +32,22 @@ pub struct ParticipantRecord {
     /// The node this participant enrolled (or is enrolling) with, hex.
     pub node: Option<String>,
     pub terms: Option<TermsAcceptance>,
+    /// Receipts found the last time the node key was given (or a cash-out settled), so they
+    /// can be listed without reading the key again. Public facts: index, account, points.
+    #[serde(default)]
+    pub receipts: Vec<KnownReceipt>,
     /// Each child's join epoch (hex node → epoch), from its join note. The program keeps it only
     /// until a claim settles that epoch, so it's remembered here the first time it's seen.
     #[serde(default)]
     pub children_since: BTreeMap<String, u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownReceipt {
+    pub index: u64,
+    pub account: String,
+    pub points: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +55,7 @@ pub struct ParticipantRecord {
 pub enum OperationKind {
     Register,
     Claim,
+    CashOut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

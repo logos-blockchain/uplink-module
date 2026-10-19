@@ -69,6 +69,14 @@ pub trait UplinkModule: 'static {
     /// Claims one batch when something is claimable and nothing is pending; call it on every
     /// poll. Points are never lost by waiting: each epoch pays once, whenever it's claimed.
     fn auto_claim(&mut self, participant: String) -> String;
+
+    /// Burns the whole reward balance into a receipt; the key derives the receipt's secret.
+    fn cash_out(&mut self, reference: String, participant: String, keystore_path: String) -> String;
+    /// Receipts; with a keystore path they're found on-chain and remembered, with `""` the
+    /// remembered list (no key read).
+    fn receipts(&mut self, participant: String, keystore_path: String) -> String;
+    /// The signed code for the payout form.
+    fn payout_code(&mut self, participant: String, index: i64, keystore_path: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -190,6 +198,18 @@ impl UplinkModule for UplinkModuleImpl {
     }
     fn auto_claim(&mut self, participant: String) -> String {
         self.with(|s| s.auto_claim(&participant))
+    }
+    fn cash_out(&mut self, reference: String, participant: String, keystore_path: String) -> String {
+        self.with(|s| s.cash_out(&reference, &participant, &keystore_path))
+    }
+    fn receipts(&mut self, participant: String, keystore_path: String) -> String {
+        self.with(|s| s.receipts(&participant, &keystore_path))
+    }
+    fn payout_code(&mut self, participant: String, index: i64, keystore_path: String) -> String {
+        self.with(|s| match u64::try_from(index) {
+            Ok(index) => s.payout_code(&participant, index, &keystore_path),
+            Err(_) => Err(DomainError::new("unknown_receipt", "no receipt with this index")),
+        })
     }
 }
 

@@ -266,6 +266,7 @@ impl History for DeadIndexer {
 }
 
 mod activity;
+mod cashout;
 mod claims;
 mod deployment;
 mod enrol;
