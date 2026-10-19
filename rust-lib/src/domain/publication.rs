@@ -35,16 +35,18 @@ pub fn published(transaction: &Transaction, program: AccountId) -> Option<(u32, 
     }
 }
 
-/// Every publication in a page of indexer JSON (an array of transactions). Entries that
-/// don't parse are skipped, so a newer indexer's extra kinds don't break older pages.
-pub fn page(json: &str, program: AccountId) -> (usize, Vec<(u32, BTreeSet<NodeId>)>) {
+/// Every publication in a page of indexer JSON (an array of transactions), with its position
+/// in the page. Entries that don't parse are skipped, so a newer indexer's extra kinds don't
+/// break older pages.
+pub fn page(json: &str, program: AccountId) -> (usize, Vec<(usize, u32, BTreeSet<NodeId>)>) {
     let Ok(entries) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
         return (0, Vec::new());
     };
     let found = entries
         .iter()
-        .filter_map(|entry| serde_json::from_value::<Transaction>(entry.clone()).ok())
-        .filter_map(|transaction| published(&transaction, program))
+        .enumerate()
+        .filter_map(|(at, entry)| Some((at, serde_json::from_value::<Transaction>(entry.clone()).ok()?)))
+        .filter_map(|(at, transaction)| published(&transaction, program).map(|(epoch, active)| (at, epoch, active)))
         .collect();
     (entries.len(), found)
 }
@@ -73,12 +75,12 @@ mod tests {
     fn reads_publishes_for_this_program_only() {
         let active = BTreeSet::from([NodeId::new([7; 32])]);
         let page_json = serde_json::to_string(&vec![
-            publish([9; 32], 4, active.clone()),
             publish([1; 32], 5, active.clone()),
+            publish([9; 32], 4, active.clone()),
         ])
         .unwrap();
         let (count, found) = page(&page_json, AccountId::new([9; 32]));
         assert_eq!(count, 2);
-        assert_eq!(found, vec![(4, active)]);
+        assert_eq!(found, vec![(1, 4, active)], "with its position in the page");
     }
 }

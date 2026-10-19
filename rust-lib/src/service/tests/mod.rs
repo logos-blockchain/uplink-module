@@ -336,6 +336,7 @@ mod deployment;
 mod enrol;
 mod lists;
 mod participants;
+mod pruning;
 mod recorder;
 mod saved_state;
 mod terms;

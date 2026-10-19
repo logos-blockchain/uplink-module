@@ -83,6 +83,15 @@ app closed). It saves each epoch's set to `uplink_epochs.json`, which the module
 on its next registry read. So epochs pass unclaimed without loss while Basecamp runs; the
 indexer is for the time it didn't.
 
+Only the sets a claim still needs are kept whole: an epoch's set is dropped once no
+participant's latest claim plan claims it (the two most recent epochs always stay, for
+referrals' late join notes). What an epoch pays depends only on whether you and your
+referrals were active, so the module notes that for every epoch it learns (your node, your
+referrer, your referrals and any node `activity` was asked about) and plans and draws the
+activity strips from those notes. If an old epoch becomes claimable again (a referral's late
+claim forwards a credit for it), its set comes back from the indexer in one call: the module
+remembers where each publication is in the indexer's history.
+
 An epoch whose set it has neither doesn't hold up the others: they're claimed, and it's
 reported in `claimable`'s `history` as `{code, missingEpochs, indexer: {state,
 indexedBlock, error}}`:

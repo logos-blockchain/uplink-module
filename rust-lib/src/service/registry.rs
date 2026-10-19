@@ -85,32 +85,55 @@ impl Service {
         self.publication((epoch, digest))
     }
 
-    /// Reads publications this module didn't see live from the indexer, if one is set up.
-    pub(super) fn fill_publications(&mut self) -> Result<bool> {
+    /// Asks the indexer, if one is set up, for the sets of `wanted` epochs: by their known
+    /// position in its history, one call each, else by reading on from where the last read
+    /// stopped, noting where every publication is. Keeps only the wanted sets. `true` when
+    /// any was found.
+    pub(super) fn fill_publications(&mut self, wanted: &[u32]) -> Result<bool> {
         let Some(history) = &self.history else { return Ok(false) };
         const PAGE: u64 = 100;
         let program = self.program()?;
         let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
-        let mut offset = self.lists().map_or(0, |l| l.history_offset);
+        let lists = self.lists().cloned().unwrap_or_default();
+        let mut wanted: BTreeSet<u32> = wanted.iter().copied().collect();
         let mut found = Vec::new();
-        loop {
+
+        for (epoch, &at) in wanted.iter().filter_map(|e| Some((*e, lists.indexed_at.get(e)?))) {
             // An indexer that isn't installed or running just means no history.
+            let Ok(page) = history.transactions_by_account(&oracle, at, 1) else { break };
+            let (_, publications) = crate::domain::publication::page(&page, program);
+            found.extend(publications.into_iter().filter(|(_, e, _)| *e == epoch).map(|(_, e, active)| (e, active)));
+        }
+        wanted.retain(|e| !found.iter().any(|(f, _)| f == e));
+
+        let mut offset = lists.history_offset;
+        let mut indexed = Vec::new();
+        while !wanted.is_empty() {
             let Ok(page) = history.transactions_by_account(&oracle, offset, PAGE) else { break };
             let (count, publications) = crate::domain::publication::page(&page, program);
+            for (at, epoch, active) in publications {
+                indexed.push((epoch, offset + at as u64));
+                if wanted.remove(&epoch) {
+                    found.push((epoch, active));
+                }
+            }
             offset += count as u64;
-            found.extend(publications);
             if (count as u64) < PAGE {
                 break;
             }
         }
-        if offset == self.lists().map_or(0, |l| l.history_offset) {
-            return Ok(false);
+
+        let target = self.lists_mut()?;
+        let moved = target.history_offset != offset || !indexed.is_empty();
+        target.history_offset = offset;
+        target.indexed_at.extend(indexed);
+        for (epoch, active) in &found {
+            self.remember_publication(*epoch, active)?;
         }
-        self.lists_mut()?.history_offset = offset;
-        for (epoch, active) in found {
-            self.remember_publication(epoch, &active)?;
+        if moved || !found.is_empty() {
+            self.refresh_marks()?;
+            self.persist_lists()?;
         }
-        self.persist_lists()?;
-        Ok(true)
+        Ok(!found.is_empty())
     }
 }

@@ -40,6 +40,17 @@ pub struct ParticipantRecord {
     /// until a claim settles that epoch, so it's remembered here the first time it's seen.
     #[serde(default)]
     pub children_since: BTreeMap<String, u32>,
+    /// Its children as its participant state names them (hex), so their activity is kept
+    /// when epoch sets are dropped (`lists`).
+    #[serde(default)]
+    pub children: std::collections::BTreeSet<String>,
+    /// The registry epoch its last claim plan looked up to, and the epochs that plan claims.
+    /// An epoch's full set is kept while some participant's plan hasn't looked at it yet or
+    /// claims it.
+    #[serde(default)]
+    pub planned_through: Option<u32>,
+    #[serde(default)]
+    pub needs: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -2,9 +2,7 @@
 //! one batch (≤16 epochs) per transaction. A later batch is built once the earlier one
 //! settles, so `claim` submits one batch and `auto_claim` keeps going on later polls.
 
-use std::collections::BTreeSet;
-
-use referral_core::{NodeId, Participant, Registry};
+use referral_core::{Participant, Registry};
 use serde_json::{Value, json};
 
 use super::saved::{OperationKind, OperationStatus};
@@ -32,31 +30,54 @@ fn retry_wait(attempts: u32) -> i64 {
 
 impl Service {
     /// Everything claimable now, batched, and the published epochs left out because their
-    /// active set isn't known (neither seen live nor found in the indexer). Those can be paid
-    /// later: the program settles epochs in any order, each once.
+    /// active set isn't known well enough (see `claims::Plan`). Those can be paid later: the
+    /// program settles epochs in any order, each once. Missing sets are asked of the indexer
+    /// once. Afterwards, sets no participant's plan needs any more are dropped (`lists`).
     fn claim_plan(&mut self, participant: &str) -> Result<ClaimPlan> {
-        let me = self.read_participant(participant)?;
         let registry = self.read_registry()?;
+        let me = match self.read_participant(participant) {
+            Err(e) if e.code == "not_registered" => {
+                // Nothing to claim, so nothing to keep a set for.
+                self.planned(participant, registry.epoch, Vec::new())?;
+                if self.prune(registry.epoch)? {
+                    self.persist_lists()?;
+                }
+                return Err(e);
+            }
+            result => result?,
+        };
+        self.follow(participant, &me)?;
         let notes = self.discover_notes(participant, me.node)?;
         // A claim consumes the join notes, so their epochs are kept before it's built.
         self.remember_joins(participant, &notes)?;
-        let mut lookup_error = None;
-        let mut missing = Vec::new();
-        let mut indexer_read = false;
-        let batches = claims::plan(&me, registry.epoch, notes.clone(), |epoch| {
-            match self.published_active(&registry, epoch, &mut indexer_read) {
-                Err(e) if e.code == "history_needed" => {
-                    missing.push(epoch);
-                    Ok(None)
-                }
-                result => result.map_err(|e| {
-                    lookup_error = Some(e.clone());
-                    e
-                }),
-            }
-        });
-        let batches = batches.map_err(|e| lookup_error.unwrap_or(e))?;
-        Ok(ClaimPlan { me, batches, notes, missing })
+
+        let mut plan = self.plan_once(&me, &registry, &notes)?;
+        if !plan.missing.is_empty() && self.fill_publications(&plan.missing)? {
+            plan = self.plan_once(&me, &registry, &notes)?;
+        }
+        let needs = plan.batches.iter().flatten().map(|e| e.epoch).collect();
+        self.planned(participant, registry.epoch, needs)?;
+        if self.prune(registry.epoch)? {
+            self.persist_lists()?;
+        }
+        Ok(ClaimPlan { me, batches: plan.batches, notes, missing: plan.missing })
+    }
+
+    fn plan_once(&self, me: &Participant, registry: &Registry, notes: &Notes) -> Result<claims::Plan> {
+        claims::plan(me, registry.epoch, notes.clone(), |epoch| {
+            let Some(digest) = self.archived_digest(epoch)? else { return Ok(None) };
+            Ok(Some(claims::Published { digest, known: self.known(registry, epoch, digest) }))
+        })
+    }
+
+    /// Records what the participant's plan needs, for `prune`.
+    fn planned(&mut self, participant: &str, through: u32, needs: Vec<u32>) -> Result<()> {
+        let Some(record) = self.deployment_mut()?.participants.get_mut(participant) else { return Ok(()) };
+        if (record.planned_through, &record.needs) == (Some(through), &needs) {
+            return Ok(());
+        }
+        (record.planned_through, record.needs) = (Some(through), needs);
+        self.persist()
     }
 
     /// The points claimable now, by batch, and `history`: `null`, or which published epochs
@@ -142,23 +163,6 @@ impl Service {
             }
         }
         self.submit_batch(&reference, participant, &plan.me, batch, &plan.notes).map(|operation| json!({ "claimed": operation }))
-    }
-
-    /// The active set of published `epoch`, checked against its archived publication account,
-    /// or `None` if the epoch was never published. Unknown sets fail with `history_needed`
-    /// after one read of the indexer per plan (`indexer_read`), however many are missing.
-    fn published_active(&mut self, registry: &Registry, epoch: u32, indexer_read: &mut bool) -> Result<Option<BTreeSet<NodeId>>> {
-        let Some(digest) = self.archived_digest(epoch)? else { return Ok(None) };
-        if let Some(active) = self.known_active(registry, epoch, digest) {
-            return Ok(Some(active));
-        }
-        if !*indexer_read {
-            *indexer_read = true;
-            self.fill_publications()?;
-        }
-        self.publication((epoch, digest)).map(Some).ok_or_else(|| {
-            DomainError::new("history_needed", format!("epoch {epoch}'s active set needs lez_indexer_module"))
-        })
     }
 
     /// Why `missing` epochs couldn't be counted, or `null` when none are missing:
