@@ -215,6 +215,8 @@ nix build                                          # the module
 build` stages its own. CI (`.github/workflows/ci.yml`) runs both on every PR: `nix build` on
 Linux and macOS, and the cargo tests on Linux.
 
+To try the module on uplink's local devnet, see [`devnet/`](devnet/README.md).
+
 ## Pins
 
 | What | Pin | Status |
