@@ -47,7 +47,7 @@ instead of sending again.
 
 | Method | Returns |
 |---|---|
-| `info()` | selected program account, terms version |
+| `info()` | selected program account, terms version, deployments seen, `stateProblem` (below) |
 | `configure(program_account)` | same as `info`; `""` clears it |
 | `check_program()` | `{programAccount, imageId}` if that account runs this module's program; else `not_configured` / `program_not_deployed` / `program_mismatch` |
 | `terms()` / `terms_status()` / `accept_terms(version, sha256)` | the text + hash / whether accepted / acceptance |
@@ -108,6 +108,10 @@ Each program account is its own deployment (devnet, testnet, …) with its own s
 `uplink_state.json` (the module's data directory): invitations, operations, epoch lists,
 join epochs and terms acceptance. Calling `configure` with another program account switches
 to it; switching back finds the earlier state as it was. `info()` lists the deployments seen.
+If the file doesn't parse, the module moves it aside (`uplink_state.json.unreadable-<ms>`),
+starts empty, and `info()` reports `stateProblem: {code: "state_set_aside", file}`. If it
+can't be read at all, nothing is saved over it: calls that save fail with `state_unreadable`
+until it's fixed.
 
 Sending a private transaction means proving it, which takes minutes without
 `RISC0_DEV_MODE`, so the module waits up to 30 minutes for `lez_core` there; callers should

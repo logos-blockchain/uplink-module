@@ -70,6 +70,9 @@ pub trait History {
 pub trait Store {
     fn load(&self) -> PortResult<Option<String>>;
     fn save(&self, json: &str) -> PortResult<()>;
+    /// Moves the saved state out of the way, keeping it, so the next save starts fresh.
+    /// Returns where it went.
+    fn set_aside(&self) -> PortResult<String>;
 }
 
 /// Files the user points the module at.

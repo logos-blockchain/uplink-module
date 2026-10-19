@@ -145,6 +145,13 @@ impl Store for FileStore {
         std::fs::write(&tmp, json).map_err(|e| format!("{}: {e}", tmp.display()))?;
         std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
     }
+
+    fn set_aside(&self) -> PortResult<String> {
+        let ms = SystemClock.now_ms();
+        let aside = self.path.with_extension(format!("json.unreadable-{ms}"));
+        std::fs::rename(&self.path, &aside).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        Ok(aside.display().to_string())
+    }
 }
 
 pub struct LocalFiles;

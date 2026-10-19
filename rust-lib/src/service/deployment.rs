@@ -3,7 +3,7 @@
 use lee_core::account::AccountId;
 use serde_json::{Value, json};
 
-use super::{Service, port, PROGRAM_ACCOUNT_ENV};
+use super::{Service, StateProblem, port, PROGRAM_ACCOUNT_ENV};
 use crate::domain::program;
 use crate::domain::{DomainError, Result, codec, terms};
 
@@ -62,7 +62,16 @@ impl Service {
             "deployments": self.saved.deployments.keys().collect::<Vec<_>>(),
             "termsVersion": terms::version(),
             "history": self.history.is_some(),
+            "stateProblem": self.state_problem_json(),
         })
+    }
+
+    fn state_problem_json(&self) -> Value {
+        match &self.state_problem {
+            None => Value::Null,
+            Some(StateProblem::SetAside { aside }) => json!({ "code": "state_set_aside", "file": aside }),
+            Some(StateProblem::Unreadable { error }) => json!({ "code": "state_unreadable", "error": error }),
+        }
     }
 
     pub(super) fn program_hex(&self) -> Option<String> {
