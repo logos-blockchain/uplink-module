@@ -57,7 +57,7 @@ impl Service {
         }
         let needs = plan.batches.iter().flatten().map(|e| e.epoch).collect();
         self.planned(participant, registry.epoch, needs)?;
-        if self.prune(registry.epoch)? {
+        if self.keep_digests()? | self.prune(registry.epoch)? {
             self.persist_lists()?;
         }
         Ok(ClaimPlan { me, batches: plan.batches, notes, missing: plan.missing })

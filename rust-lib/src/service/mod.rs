@@ -48,6 +48,8 @@ pub struct Service {
     saved: Saved,
     /// Set when the saved state couldn't be used at startup; `info()` reports it.
     state_problem: Option<StateProblem>,
+    /// Archived digests read since they were last kept (`registry::keep_digests`).
+    fresh_digests: std::cell::RefCell<Vec<(u32, [u8; 32])>>,
 }
 
 /// What went wrong with the saved state at startup.
@@ -77,7 +79,7 @@ impl Service {
         let mut lists = lists::Lists::load(lists_store.as_ref());
         let moved = lists::migrate(&mut saved, &mut lists);
         let service =
-            Self { lez, history, store, lists_store, lists, recorded, files, clock, binary, checked: None, saved, state_problem };
+            Self { lez, history, store, lists_store, lists, recorded, files, clock, binary, checked: None, saved, state_problem, fresh_digests: Default::default() };
         if moved {
             // Best effort: the sets are a cache, and the old state still has them until saved.
             let _ = service.persist_lists();

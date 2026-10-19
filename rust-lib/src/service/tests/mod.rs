@@ -44,6 +44,8 @@ pub(super) struct Chain {
     reply: Option<String>,
     pub(super) settled: bool,
     pub(super) height: i64,
+    /// Every public account read, in order.
+    pub(super) public_reads: Vec<String>,
     created: u8,
 }
 
@@ -64,7 +66,9 @@ impl Lez for FakeLez {
         Ok(chain.private.keys().map(|id| (id.clone(), false)).chain(chain.public.keys().map(|id| (id.clone(), true))).collect())
     }
     fn get_account_public(&self, id: &str) -> PortResult<String> {
-        Ok(self.0.borrow().public.get(id).cloned().unwrap_or_default())
+        let mut chain = self.0.borrow_mut();
+        chain.public_reads.push(id.to_owned());
+        Ok(chain.public.get(id).cloned().unwrap_or_default())
     }
     fn get_account_private(&self, id: &str) -> PortResult<String> {
         Ok(self.0.borrow().private.get(id).map(|(account, _)| account.clone()).unwrap_or_default())

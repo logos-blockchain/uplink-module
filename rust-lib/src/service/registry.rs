@@ -62,8 +62,31 @@ impl Service {
         (set.digest()? == digest).then(|| set.nodes()).flatten()
     }
 
-    /// The digest the program archived for `epoch`, or `None` if it was never published.
+    /// The digest the program archived for `epoch`, or `None` if it isn't published (yet).
+    /// A published digest never changes, so each is read from the chain once: new ones are
+    /// collected here and kept by `keep_digests`.
     pub(super) fn archived_digest(&self, epoch: u32) -> Result<Option<[u8; 32]>> {
+        if let Some(digest) = self.lists().and_then(|l| l.archived.get(&epoch)).and_then(|d| codec::bytes32(d).ok()) {
+            return Ok(Some(digest));
+        }
+        let digest = self.read_archived_digest(epoch)?;
+        if let Some(digest) = digest {
+            self.fresh_digests.borrow_mut().push((epoch, digest));
+        }
+        Ok(digest)
+    }
+
+    /// Keeps the digests read since the last call. `true` when there were any.
+    pub(super) fn keep_digests(&mut self) -> Result<bool> {
+        let fresh = std::mem::take(&mut *self.fresh_digests.borrow_mut());
+        if fresh.is_empty() {
+            return Ok(false);
+        }
+        self.lists_mut()?.archived.extend(fresh.into_iter().map(|(epoch, digest)| (epoch, hex::encode(digest))));
+        Ok(true)
+    }
+
+    fn read_archived_digest(&self, epoch: u32) -> Result<Option<[u8; 32]>> {
         let program = self.program()?;
         let archive = codec::account_hex(&referral_core::epoch_account(program, epoch));
         let account = self.lez.get_account_public(&archive).map_err(port)?;

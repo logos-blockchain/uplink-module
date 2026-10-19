@@ -71,6 +71,9 @@ pub struct DeploymentLists {
     /// Nodes `activity` was asked about, followed like the participants' own.
     #[serde(default)]
     pub watched: BTreeSet<String>,
+    /// Each published epoch's archived digest (hex), read once: it never changes.
+    #[serde(default)]
+    pub archived: BTreeMap<u32, String>,
 }
 
 /// Which followed nodes were active in an epoch (hex), and which were checked.
