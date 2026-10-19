@@ -346,6 +346,7 @@ mod deployment;
 mod enrol;
 mod keys;
 mod lists;
+mod outcomes;
 mod participants;
 mod pruning;
 mod recorder;

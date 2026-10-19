@@ -129,6 +129,8 @@ impl Service {
         let detail = json!({
             "epochs": batch.iter().map(|e| e.epoch).collect::<Vec<_>>(),
             "points": claim.epochs.iter().map(|e| e.total).sum::<u128>().to_string(),
+            // To tell later, whatever became of the transaction, whether it landed.
+            "balanceBefore": me.reward_balance.to_string(),
         });
         self.submit(reference, OperationKind::Claim, participant, accounts, instructions::claim(claim), detail)
     }
