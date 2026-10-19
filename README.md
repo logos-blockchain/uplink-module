@@ -114,8 +114,9 @@ claim forwards a credit for it), its set comes back from the indexer in one call
 remembers where each publication is in the indexer's history.
 
 An epoch whose set it has neither doesn't hold up the others: they're claimed, and it's
-reported in `claimable`'s `history` as `{code, missingEpochs, indexer: {state,
-indexedBlock, error}}`:
+reported in `claimable`'s `history` as `{code, missingEpochs, pointsWaiting, indexer:
+{state, indexedBlock, error}}` (`pointsWaiting` is what the module can already tell those
+epochs pay, so at least that much):
 
 - `history_syncing`: the indexer is running but still catching up. The epochs will come.
 - `history_needed`: no indexer is running (or it failed). Start `lez_indexer_module`; in

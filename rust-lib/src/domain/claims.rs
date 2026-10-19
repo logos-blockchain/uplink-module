@@ -89,6 +89,9 @@ impl Published {
 pub struct Plan {
     pub batches: Vec<Batch>,
     pub missing: Vec<Epoch>,
+    /// What the missing epochs known in part are worth: claimable once their sets come back.
+    /// The wholly unknown ones may pay more, so this is a floor.
+    pub waiting: Points,
 }
 
 /// Plans every claimable epoch. `published(epoch)` is `None` if the epoch was never published.
@@ -122,6 +125,7 @@ pub fn plan(
 
     let mut planned: Vec<EpochPlan> = Vec::new();
     let mut missing = Vec::new();
+    let mut waiting: Points = 0;
     for epoch in earliest.max(1)..=current_epoch {
         let Some(Published { digest, known }) = published(epoch)? else { continue };
         let (active, full) = match known {
@@ -152,14 +156,17 @@ pub fn plan(
         let total = settle(&mut simulated, &EpochClaim { epoch, active: active.clone(), notes: states, total: 0 })?;
         match (total > 0, full) {
             (true, true) => planned.push(EpochPlan { epoch, active, notes: ids, total }),
-            (true, false) => missing.push(epoch),
+            (true, false) => {
+                missing.push(epoch);
+                waiting += total;
+            }
             (false, _) => {}
         }
     }
     if let Some(first) = planned.first_mut() {
         first.notes.splice(0..0, children.iter().map(|(id, _)| *id));
     }
-    Ok(Plan { batches: batch(planned), missing })
+    Ok(Plan { batches: batch(planned), missing, waiting })
 }
 
 /// Splits planned epochs, in order, into claims of at most [`MAX_CLAIM_EPOCHS`] epochs and
@@ -297,6 +304,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(plan.missing, vec![2, 3]);
+        assert_eq!(plan.waiting, 1, "epoch 2's point, known though not claimable yet");
         assert_eq!(plan.batches.iter().flatten().map(|e| e.epoch).collect::<Vec<_>>(), vec![4]);
     }
 
