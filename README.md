@@ -118,6 +118,13 @@ Sending a private transaction means proving it, which takes minutes without
 `RISC0_DEV_MODE`, so the module waits up to 30 minutes for `lez_core` there; callers should
 call `enrol`, `claim`, `auto_claim` and `cash_out` without the default 20 s timeout.
 
+While a send is proving, the module answers nothing else, and that's by design rather than
+a missing `"concurrency": "multi"`. `lez_core` runs one call at a time and its wallet stays
+locked through the proof (`wallet_ffi_send_generic_private_transaction`), so any other call
+that reads the wallet would wait behind it anyway. Callers should not poll during a send
+(the Uplink app pauses its refresh); the result comes back from the send itself, or from
+`status(reference)` afterwards.
+
 ## Build and test
 
 ```bash
