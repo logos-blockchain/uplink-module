@@ -27,6 +27,13 @@ fn cash_out_burns_the_balance_into_a_receipt_only_the_node_can_find() {
     let receipts = service.receipts(PARTICIPANT, "/node/keystore.yaml").unwrap();
     assert_eq!(receipts["receipts"][0]["points"], "9");
 
+    // Once settled and the balance is spent, repeating the reference returns the record.
+    world.lez.0.borrow_mut().settled = true;
+    world.set_participant(Participant::new(me, None));
+    let again = service.cash_out(&reference(9), PARTICIPANT, "/node/keystore.yaml").unwrap();
+    assert_eq!((again["status"].clone(), again["detail"]["receipt"].clone()), (json!("settled"), json!(receipt)));
+    assert_eq!(world.sent().len(), 1, "nothing sent again");
+
     let code = service.payout_code(PARTICIPANT, 0, "/node/keystore.yaml").unwrap();
     let body = code["code"].as_str().unwrap().strip_prefix(crate::service::cashout::PAYOUT_PREFIX).unwrap();
     use base64::Engine as _;

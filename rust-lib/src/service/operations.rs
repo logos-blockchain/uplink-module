@@ -24,13 +24,10 @@ impl Service {
         instruction: Vec<u8>,
         detail: Value,
     ) -> Result<Value> {
-        let reference = reference_id(reference)?;
-        if let Some(existing) = self.deployment().operations.get(&reference).filter(|op| op.status != OperationStatus::Failed) {
-            if existing.kind != kind || !existing.participant.eq_ignore_ascii_case(participant) {
-                return Err(DomainError::new("conflict", "this reference was used for another operation"));
-            }
-            return Ok(operation_json(existing));
+        if let Some(existing) = self.replay(reference, kind, participant)? {
+            return Ok(existing);
         }
+        let reference = reference_id(reference)?;
         let program_kind = json!({ "kind": "disclosed", "account_id": codec::account_hex(&self.verified_program()?) }).to_string();
 
         let created_at_ms = self.clock.now_ms();
@@ -72,6 +69,20 @@ impl Service {
         let result = operation_json(operation);
         self.persist()?;
         Ok(result)
+    }
+
+    /// The record of an operation already made under `reference` (brought up to date), unless
+    /// it failed. Each operation checks this first: once one settles, the checks before sending
+    /// ("already registered", "nothing to claim") would refuse the same request.
+    pub(super) fn replay(&mut self, reference: &str, kind: OperationKind, participant: &str) -> Result<Option<Value>> {
+        let reference = reference_id(reference)?;
+        let Some(existing) = self.deployment().operations.get(&reference).filter(|op| op.status != OperationStatus::Failed) else {
+            return Ok(None);
+        };
+        if existing.kind != kind || !existing.participant.eq_ignore_ascii_case(participant) {
+            return Err(DomainError::new("conflict", "this reference was used for another operation"));
+        }
+        self.status(&reference).map(Some)
     }
 
     /// Brings the participant's open operations up to date: pending ones settle once their

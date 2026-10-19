@@ -67,6 +67,9 @@ impl Service {
     }
 
     pub fn cash_out(&mut self, reference: &str, participant: &str, keystore_path: &str) -> Result<Value> {
+        if let Some(existing) = self.replay(reference, OperationKind::CashOut, participant)? {
+            return Ok(existing);
+        }
         self.require_no_other_open(participant, reference)?;
         let me = self.read_participant(participant)?;
         if me.reward_balance == 0 {

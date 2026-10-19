@@ -44,6 +44,9 @@ impl Service {
 
     /// Submits the oldest batch. Call again (or use `auto_claim`) once it settles for the next.
     pub fn claim(&mut self, reference: &str, participant: &str) -> Result<Value> {
+        if let Some(existing) = self.replay(reference, OperationKind::Claim, participant)? {
+            return Ok(existing);
+        }
         self.require_no_other_open(participant, reference)?;
         let (me, batches, notes) = self.claim_plan(participant)?;
         let Some(batch) = batches.into_iter().next() else {

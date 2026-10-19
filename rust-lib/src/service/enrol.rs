@@ -31,6 +31,10 @@ impl Service {
     /// key is refused, so a wrong file can't enrol another node. `""` takes the keystore's
     /// BlendSigning key. The key is wiped as soon as the signature is made.
     pub fn enrol(&mut self, reference: &str, participant: &str, keystore_path: &str, node: &str) -> Result<Value> {
+        // Before the keystore: a repeat needs no key.
+        if let Some(existing) = self.replay(reference, OperationKind::Register, participant)? {
+            return Ok(existing);
+        }
         let referrer = self.referrer_of(participant)?;
         let expected = codec::optional_node(node)?;
         let (node, signature) = {
@@ -43,6 +47,9 @@ impl Service {
     }
 
     pub fn enrol_with_signature(&mut self, reference: &str, participant: &str, node: &str, signature: &str) -> Result<Value> {
+        if let Some(existing) = self.replay(reference, OperationKind::Register, participant)? {
+            return Ok(existing);
+        }
         let terms = self.require_terms()?;
         let program = self.program()?;
         let participant_id = codec::account(participant)?;

@@ -56,6 +56,11 @@ fn auto_claim_waits_for_the_pending_claim_and_stops_when_settled() {
 
     assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "nothing_to_claim");
     assert_eq!(world.sent().len(), 1);
+
+    // Repeating the settled claim's reference returns its record; nothing is left to claim.
+    let reference = first["claimed"]["reference"].as_str().unwrap();
+    assert_eq!(service.claim(reference, PARTICIPANT).unwrap()["status"], "settled");
+    assert_eq!(service.claim(reference, "1111111111111111111111111111111111111111111111111111111111111112").unwrap_err().code, "conflict");
 }
 
 #[test]
