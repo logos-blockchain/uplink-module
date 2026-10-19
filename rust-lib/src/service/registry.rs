@@ -5,8 +5,19 @@ use std::collections::BTreeSet;
 use referral_core::{NodeId, ORACLE_ACCOUNT_ID, Registry, active_digest};
 use serde_json::{Value, json};
 
+use lee_core::account::AccountId;
+
+use super::lists::StoredSet;
 use super::{Service, port};
 use crate::domain::{DomainError, Result, codec, state};
+use crate::ports::Lez;
+
+/// The oracle's registry for `program`; empty before its first publication.
+pub(super) fn registry_at(lez: &dyn Lez, program: &AccountId) -> Result<Registry> {
+    let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
+    let account = lez.get_account_public(&oracle).map_err(port)?;
+    if account.is_empty() { Ok(Registry::default()) } else { state::registry(&codec::shard(&account, program)?) }
+}
 
 impl Service {
     pub fn registry(&mut self) -> Result<Value> {
@@ -18,13 +29,14 @@ impl Service {
         }))
     }
 
+    /// The registry as it is now. Saves its epoch's active set, and any the recorder saved
+    /// since the last read, so later claims have them.
     pub(super) fn read_registry(&mut self) -> Result<Registry> {
-        let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
-        let account = self.lez.get_account_public(&oracle).map_err(port)?;
-        let registry =
-            if account.is_empty() { Registry::default() } else { state::registry(&codec::shard(&account, &self.program()?)?)? };
-        if registry.epoch > 0 && self.remember_publication(registry.epoch, &registry.active_nodes)? {
-            self.persist()?;
+        let registry = registry_at(self.lez.as_ref(), &self.program()?)?;
+        let mut new = registry.epoch > 0 && self.remember_publication(registry.epoch, &registry.active_nodes)?;
+        new |= self.take_recorded()?;
+        if new {
+            self.persist_lists()?;
         }
         Ok(registry)
     }
@@ -35,17 +47,19 @@ impl Service {
 
     /// `true` when it's new.
     pub(super) fn remember_publication(&mut self, epoch: u32, active: &BTreeSet<NodeId>) -> Result<bool> {
-        let key = Self::publication_key(epoch, &active_digest(active));
-        Ok(self.deployment_mut()?.publications.insert(key, active.iter().map(codec::node_hex).collect()).is_none())
+        let set = StoredSet::new(active);
+        let sets = &mut self.lists_mut()?.sets;
+        if sets.get(&epoch) == Some(&set) {
+            return Ok(false);
+        }
+        sets.insert(epoch, set);
+        Ok(true)
     }
 
+    /// The saved active set of `epoch`, if it matches the archived `digest`.
     pub(super) fn publication(&self, (epoch, digest): (u32, [u8; 32])) -> Option<BTreeSet<NodeId>> {
-        self.deployment()
-            .publications
-            .get(&Self::publication_key(epoch, &digest))?
-            .iter()
-            .map(|node| codec::node(node).ok())
-            .collect()
+        let set = self.lists()?.sets.get(&epoch)?;
+        (set.digest()? == digest).then(|| set.nodes()).flatten()
     }
 
     /// The digest the program archived for `epoch`, or `None` if it was never published.
@@ -71,32 +85,55 @@ impl Service {
         self.publication((epoch, digest))
     }
 
-    /// Reads publications this module didn't see live from the indexer, if one is set up.
-    pub(super) fn fill_publications(&mut self) -> Result<bool> {
+    /// Asks the indexer, if one is set up, for the sets of `wanted` epochs: by their known
+    /// position in its history, one call each, else by reading on from where the last read
+    /// stopped, noting where every publication is. Keeps only the wanted sets. `true` when
+    /// any was found.
+    pub(super) fn fill_publications(&mut self, wanted: &[u32]) -> Result<bool> {
         let Some(history) = &self.history else { return Ok(false) };
         const PAGE: u64 = 100;
         let program = self.program()?;
         let oracle = codec::account_hex(&ORACLE_ACCOUNT_ID);
-        let mut offset = self.deployment().history_offset;
+        let lists = self.lists().cloned().unwrap_or_default();
+        let mut wanted: BTreeSet<u32> = wanted.iter().copied().collect();
         let mut found = Vec::new();
-        loop {
+
+        for (epoch, &at) in wanted.iter().filter_map(|e| Some((*e, lists.indexed_at.get(e)?))) {
             // An indexer that isn't installed or running just means no history.
+            let Ok(page) = history.transactions_by_account(&oracle, at, 1) else { break };
+            let (_, publications) = crate::domain::publication::page(&page, program);
+            found.extend(publications.into_iter().filter(|(_, e, _)| *e == epoch).map(|(_, e, active)| (e, active)));
+        }
+        wanted.retain(|e| !found.iter().any(|(f, _)| f == e));
+
+        let mut offset = lists.history_offset;
+        let mut indexed = Vec::new();
+        while !wanted.is_empty() {
             let Ok(page) = history.transactions_by_account(&oracle, offset, PAGE) else { break };
             let (count, publications) = crate::domain::publication::page(&page, program);
+            for (at, epoch, active) in publications {
+                indexed.push((epoch, offset + at as u64));
+                if wanted.remove(&epoch) {
+                    found.push((epoch, active));
+                }
+            }
             offset += count as u64;
-            found.extend(publications);
             if (count as u64) < PAGE {
                 break;
             }
         }
-        if offset == self.deployment().history_offset {
-            return Ok(false);
+
+        let target = self.lists_mut()?;
+        let moved = target.history_offset != offset || !indexed.is_empty();
+        target.history_offset = offset;
+        target.indexed_at.extend(indexed);
+        for (epoch, active) in &found {
+            self.remember_publication(*epoch, active)?;
         }
-        self.deployment_mut()?.history_offset = offset;
-        for (epoch, active) in found {
-            self.remember_publication(epoch, &active)?;
+        if moved || !found.is_empty() {
+            self.refresh_marks()?;
+            self.persist_lists()?;
         }
-        self.persist()?;
-        Ok(true)
+        Ok(!found.is_empty())
     }
 }

@@ -139,10 +139,25 @@ impl Clock for FakeClock {
     }
 }
 
-pub(super) struct FakeHistory(String);
+/// A caught-up indexer whose history is one page.
+pub(super) struct FakeHistory(pub(super) String);
 impl History for FakeHistory {
     fn transactions_by_account(&self, _: &str, offset: u64, _: u64) -> PortResult<String> {
         Ok(if offset == 0 { self.0.clone() } else { "[]".into() })
+    }
+    fn status(&self) -> PortResult<String> {
+        Ok(json!({ "state": "CaughtUp", "last_error": null, "indexed_block_id": 50 }).to_string())
+    }
+}
+
+/// An indexer still replaying the chain: nothing indexed yet past block 12.
+pub(super) struct SyncingHistory;
+impl History for SyncingHistory {
+    fn transactions_by_account(&self, _: &str, _: u64, _: u64) -> PortResult<String> {
+        Ok("[]".into())
+    }
+    fn status(&self) -> PortResult<String> {
+        Ok(json!({ "state": "Syncing", "last_error": null, "indexed_block_id": 12 }).to_string())
     }
 }
 
@@ -164,6 +179,10 @@ pub(super) const REFERRER: NodeId = NodeId::new([8; 32]);
 pub(super) struct World {
     pub(super) lez: FakeLez,
     pub(super) store: FakeStore,
+    /// Epoch active sets.
+    pub(super) lists: FakeStore,
+    /// The recorder's log.
+    pub(super) log: FakeStore,
 }
 
 impl World {
@@ -175,7 +194,7 @@ impl World {
 
     /// A wallet with an unregistered participant, and a chain with nothing published.
     pub(super) fn empty() -> Self {
-        let world = Self { lez: FakeLez::default(), store: FakeStore::default() };
+        let world = Self { lez: FakeLez::default(), store: FakeStore::default(), lists: FakeStore::default(), log: FakeStore::default() };
         world.lez.0.borrow_mut().private.insert(PARTICIPANT.into(), (EMPTY_ACCOUNT.into(), keys_json(0x11)));
         world.deploy(&hex::encode(PROGRAM), IMAGE_ID);
         world
@@ -185,7 +204,7 @@ impl World {
         self.service_with(None)
     }
 
-    fn service_with(&self, history: Option<Box<dyn History>>) -> Service {
+    pub(super) fn service_with(&self, history: Option<Box<dyn History>>) -> Service {
         let mut service = self.started(history);
         service.configure(&hex::encode(PROGRAM)).unwrap();
         service
@@ -197,6 +216,8 @@ impl World {
             Box::new(self.lez.clone()),
             history,
             Box::new(self.store.clone()),
+            Box::new(self.lists.clone()),
+            Some(Box::new(self.log.clone())),
             Box::new(FakeFiles(keystore_yaml())),
             Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
@@ -280,11 +301,30 @@ pub(super) fn referrer_entry() -> AccountEntry {
     AccountEntry::PrivateForeign { npk: hex::encode([0x22; 32]), vpk: hex::encode([0x22; VPK_LEN]) }
 }
 
+/// A page of indexer history holding the oracle's `Publish` of `epoch`.
+pub(super) fn publish_json(epoch: u32, active: BTreeSet<NodeId>) -> String {
+    let publish = indexer_service_protocol::Transaction::Public(indexer_service_protocol::PublicTransaction {
+        hash: indexer_service_protocol::HashType([0; 32]),
+        message: indexer_service_protocol::PublicMessage {
+            program_account_id: indexer_service_protocol::AccountId { value: PROGRAM },
+            shard_selectors: vec![],
+            nonces: vec![],
+            instruction_data: borsh::to_vec(&Instruction::Publish { epoch, active }).unwrap(),
+            fee: None,
+        },
+        witness_set: indexer_service_protocol::WitnessSet { signatures_and_public_keys: vec![], proof: None },
+    });
+    serde_json::to_string(&vec![publish]).unwrap()
+}
+
 /// An indexer that never answers, like one that isn't running.
 pub(super) struct DeadIndexer(Rc<RefCell<usize>>);
 impl History for DeadIndexer {
     fn transactions_by_account(&self, _: &str, _: u64, _: u64) -> PortResult<String> {
         *self.0.borrow_mut() += 1;
+        Err("object_unavailable".into())
+    }
+    fn status(&self) -> PortResult<String> {
         Err("object_unavailable".into())
     }
 }
@@ -294,6 +334,9 @@ mod cashout;
 mod claims;
 mod deployment;
 mod enrol;
+mod lists;
 mod participants;
+mod pruning;
+mod recorder;
 mod saved_state;
 mod terms;

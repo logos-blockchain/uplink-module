@@ -40,6 +40,17 @@ pub struct ParticipantRecord {
     /// until a claim settles that epoch, so it's remembered here the first time it's seen.
     #[serde(default)]
     pub children_since: BTreeMap<String, u32>,
+    /// Its children as its participant state names them (hex), so their activity is kept
+    /// when epoch sets are dropped (`lists`).
+    #[serde(default)]
+    pub children: std::collections::BTreeSet<String>,
+    /// The registry epoch its last claim plan looked up to, and the epochs that plan claims.
+    /// An epoch's full set is kept while some participant's plan hasn't looked at it yet or
+    /// claims it.
+    #[serde(default)]
+    pub planned_through: Option<u32>,
+    #[serde(default)]
+    pub needs: Vec<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -119,10 +130,15 @@ pub struct Deployment {
     pub terms: Option<TermsAcceptance>,
     pub participants: BTreeMap<String, ParticipantRecord>,
     pub operations: BTreeMap<String, Operation>,
-    /// Every publication seen: `"<epoch>:<digest hex>"` → active nodes, hex.
+    /// Active sets as earlier versions saved them (`"<epoch>:<digest hex>"` → nodes, hex).
+    /// Read once, moved to `uplink_lists.json` (`lists`), never written again.
+    #[serde(default, skip_serializing)]
     pub publications: BTreeMap<String, Vec<String>>,
-    /// How far the indexer's history of the registry has been read.
+    #[serde(default, skip_serializing)]
     pub history_offset: u64,
+    /// The latest epoch taken in from the recorder's log, which it may then forget.
+    #[serde(default)]
+    pub recorded_through: Option<u32>,
 }
 
 impl Deployment {
@@ -132,6 +148,7 @@ impl Deployment {
         operations: BTreeMap::new(),
         publications: BTreeMap::new(),
         history_offset: 0,
+        recorded_through: None,
     };
 }
 

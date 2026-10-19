@@ -3,8 +3,8 @@
 The Uplink node referral program as a Logos module: terms, enrolment, claims and cash-out
 against the referral program in [logos-blockchain/uplink](https://github.com/logos-blockchain/uplink),
 through `lez_core`'s generic API. The Uplink app in Basecamp
-([logos-uplink-app](https://github.com/logos-co/logos-uplink-app)) and `logoscore` call the
-same methods.
+([logos-uplink-app](https://github.com/logos-co/logos-uplink-app)) and the command line
+(`logosctl`) call the same methods.
 
 > Status: early. `lez_core` is pinned to an open PR (see [Pins](#pins)), and the program has
 > so far only run on a local devnet.
@@ -12,7 +12,7 @@ same methods.
 ## How it fits
 
 ```
-Uplink app / logoscore ──▶ uplink_module ──▶ lez_core             (wallet: keys, reads, proving, submit)
+Uplink app / logosctl ──▶ uplink_module ──▶ lez_core             (wallet: keys, reads, proving, submit)
                                  │       └─▶ lez_indexer_module   (optional: past publications)
                                  └─ referral_core (uplink)        (the program's formats, compiled in)
 ```
@@ -63,31 +63,83 @@ instead of sending again.
 | `keystore_node(keystore_path)` | the node a keystore is for, from its public keys only |
 | `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`; a transaction no block includes within 100 blocks fails (a Register found on chain settles instead), so it can be retried |
 | `sync()` / `notes(participant)` | syncs the wallet / new referrals and credits |
-| `claimable(participant)` / `claim(reference, participant)` | points by batch / submits the oldest batch (≤16 epochs) |
+| `claimable(participant)` / `claim(reference, participant)` | points by batch, and `history` (below) / submits the oldest batch (≤16 epochs) |
 | `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll. A failed batch is retried under the same reference after 10, 20, 40, … (up to 640) blocks: `{skipped: "backoff", retryAtBlock}` meanwhile |
 | `cash_out(reference, participant, keystore_path)` | the CashOut operation (whole balance) |
 | `receipts(participant, keystore_path)` | receipts; with `""` the ones already known, without reading the key |
 | `payout_code(participant, index, keystore_path)` | the signed `uplink-payout-v2:` code |
 
-Epochs can be claimed late: each published epoch is archived on-chain, and each child is
-paid once per epoch whenever it's claimed. The archive holds only a digest of each epoch's
-active set: the module learns the set itself live, or from `lez_indexer_module` (checked
-against the digest). Without either, those claims fail with `history_needed`. Invitation
-codes are `uplink-invite-v1:` + base64url of the inviter's node and its participant's public
-keys; the `uplink` CLI's invitation JSON is accepted too.
+### Claim history
 
-### From `logoscore`
+Epochs can be claimed late, and in any order: each published epoch is archived on-chain,
+and each child is paid once per epoch whenever it's claimed. But the archive holds only a
+digest of each epoch's active set, and a claim must name the set itself (the program checks
+it against the digest). The module learns each set live, while the epoch is current, or
+reads it from `lez_indexer_module` (checked against the digest).
+
+Live means the recorder: a thread that looks at the registry for as long as the module is
+loaded, whether or not an app is calling it (in Basecamp, also with the Uplink app closed):
+every 15 s after an epoch change, slowing to every 10 minutes as the epoch ages (the
+registry is a few MB on a large network). It saves each epoch's set to
+`uplink_epochs.json`, which the module takes in on its next registry read, and then forgets
+it. So epochs pass unclaimed without loss while Basecamp runs; the
+indexer is for the time it didn't.
+
+Only the sets a claim still needs are kept whole: an epoch's set is dropped once no
+participant's latest claim plan claims it (the two most recent epochs always stay, for
+referrals' late join notes). What an epoch pays depends only on whether you and your
+referrals were active, so the module notes that for every epoch it learns (your node, your
+referrer, your referrals and any node `activity` was asked about) and plans and draws the
+activity strips from those notes. If an old epoch becomes claimable again (a referral's late
+claim forwards a credit for it), its set comes back from the indexer in one call: the module
+remembers where each publication is in the indexer's history.
+
+An epoch whose set it has neither doesn't hold up the others: they're claimed, and it's
+reported in `claimable`'s `history` as `{code, missingEpochs, indexer: {state,
+indexedBlock, error}}`:
+
+- `history_syncing`: the indexer is running but still catching up. The epochs will come.
+- `history_needed`: no indexer is running (or it failed). Start `lez_indexer_module`; in
+  Basecamp, from the LEZ Explorer app.
+
+`claim` fails with the same code only when those epochs are all there is to claim, and
+`auto_claim` answers `{skipped: <code>, history}`. A fresh indexer replays the chain from
+genesis against your node, so it finds every past epoch, also after restoring a wallet on a
+new machine (this relies on nodes keeping all finalized blocks, as they do while they sync
+from genesis; a node bootstrapped from a checkpoint wouldn't have the epochs before it).
+
+From the command line, the indexer (and the recorder) run as long as the daemon that
+loaded them:
 
 ```bash
-logoscore … -c "uplink_module.configure(<program account>)"                    # once
-logoscore … -c "uplink_module.check_program()"
-logoscore … -c "uplink_module.terms()"
-logoscore … -c "uplink_module.accept_terms(1, <sha256>)"
-logoscore … -c "uplink_module.create_participant(uplink-referral)"
-logoscore … -c "uplink_module.import_invitation(<participant>, <invitation code>)"   # if invited
-logoscore … -c "uplink_module.enrol(<reference>, <participant>, /path/to/keystore.yaml, <node>)"
-logoscore … -c "uplink_module.status(<reference>)"
+logosctl daemon start --detach
+logosctl module load uplink_module          # with lez_core, and lez_indexer_module (optional deps)
+logosctl call lez_indexer_module start_indexer /abs/path/indexer_config.json
+logosctl call uplink_module claimable <participant>   # again until history is null
+logosctl call uplink_module claim <reference> <participant>
 ```
+
+Invitation codes are `uplink-invite-v1:` + base64url of the inviter's node and its participant's public
+keys; the `uplink` CLI's invitation JSON is accepted too.
+
+### From the command line
+
+With `logosctl daemon start --detach` running (`logoscore` takes the same calls):
+
+```bash
+logosctl module load uplink_module
+logosctl call uplink_module configure <program account>                 # once
+logosctl call uplink_module check_program
+logosctl call uplink_module terms
+logosctl call uplink_module accept_terms 1 <sha256>
+logosctl call uplink_module create_participant uplink-referral
+logosctl call uplink_module import_invitation <participant> <invitation code>   # if invited
+logosctl call uplink_module enrol <reference> <participant> /path/to/keystore.yaml <node>
+logosctl call uplink_module status <reference>
+```
+
+Arguments that look like numbers are sent as numbers; pass a hex id that is all digits as
+`str:<id>`.
 
 ## Configuration
 
@@ -106,8 +158,9 @@ wrong network or another version fails with `program_not_deployed` / `program_mi
 instead of a rejected transaction.
 
 Each program account is its own deployment (devnet, testnet, …) with its own saved state in
-`uplink_state.json` (the module's data directory): invitations, operations, epoch lists,
-join epochs and terms acceptance. Calling `configure` with another program account switches
+`uplink_state.json` (the module's data directory): invitations, operations, join epochs and
+terms acceptance. Epoch active sets, a few MB each on a large network, are kept apart in
+`uplink_lists.json`, a cache the indexer can refill. Calling `configure` with another program account switches
 to it; switching back finds the earlier state as it was. `info()` lists the deployments seen.
 If the file doesn't parse, the module moves it aside (`uplink_state.json.unreadable-<ms>`),
 starts empty, and `info()` reports `stateProblem: {code: "state_set_aside", file}`. If it

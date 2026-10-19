@@ -2,12 +2,15 @@
 //! `{"ok": false, "code": "<reason>", "error": "<text>"}`. Ids are hex; `reference` is a
 //! caller-chosen 32-byte hex id that makes resubmitting idempotent.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
 use serde_json::{Value, json};
 
 use crate::adapters::{FileStore, Indexer, LezCore, LocalFiles, SystemClock};
 use crate::domain::DomainError;
 use crate::domain::program::Binary;
-use crate::service::Service;
+use crate::service::{Service, recorder};
 
 pub trait UplinkModule: 'static {
     /// Selected program account, terms version, whether history is on.
@@ -109,14 +112,18 @@ impl UplinkModuleImpl {
 
 impl UplinkModule for UplinkModuleImpl {
     fn on_context_ready(&mut self, ctx: &RustModuleContext) {
+        let dir = &ctx.instance_persistence_path;
         self.service = Some(Service::new(
             Box::new(LezCore),
             Some(Box::new(Indexer)),
-            Box::new(FileStore::new(&ctx.instance_persistence_path)),
+            Box::new(FileStore::new(dir)),
+            Box::new(FileStore::named(dir, "uplink_lists.json")),
+            Some(Box::new(FileStore::named(dir, RECORDER_LOG))),
             Box::new(LocalFiles),
             Box::new(SystemClock),
             Binary::embedded(),
         ));
+        start_recorder(dir);
     }
 
     fn info(&mut self) -> String {
@@ -213,7 +220,56 @@ impl UplinkModule for UplinkModuleImpl {
     }
 }
 
+/// The recorder's own file, next to the service's state (see `service::recorder`).
+const RECORDER_LOG: &str = "uplink_epochs.json";
+
+static RECORDER_RUNNING: AtomicBool = AtomicBool::new(false);
+static RECORDER_STOP: AtomicBool = AtomicBool::new(false);
+
+/// Starts the recorder thread, once: it looks at the registry (paced by `recorder::next_look`)
+/// for as long as the module is loaded, whether or not any app is calling it.
+fn start_recorder(dir: &str) {
+    if RECORDER_RUNNING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (state, log) = (FileStore::new(dir), FileStore::named(dir, RECORDER_LOG));
+    let spawned = std::thread::Builder::new().name("uplink-recorder".into()).spawn(move || {
+        let mut last_new = std::time::Instant::now();
+        while !RECORDER_STOP.load(Ordering::SeqCst) {
+            // A failed look (no wallet open yet, lez_core busy proving, nothing configured)
+            // is just tried again on the next one.
+            if let Ok(Some(_)) = recorder::record_once(&LezCore, &state, &log) {
+                last_new = std::time::Instant::now();
+            }
+            let wait = recorder::next_look(last_new.elapsed());
+            let mut slept = Duration::ZERO;
+            while slept < wait && !RECORDER_STOP.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(250));
+                slept += Duration::from_millis(250);
+            }
+        }
+        RECORDER_RUNNING.store(false, Ordering::SeqCst);
+        logos_rust_sdk::unload_finished();
+    });
+    if spawned.is_err() {
+        RECORDER_RUNNING.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Stops the recorder before the host unloads the module: the host waits (`Asynchronous`)
+/// until the thread is out of the library's code, at most one look (one lez_core call).
+impl logos_rust_sdk::AboutToUnload for UplinkModuleImpl {
+    fn about_to_unload(&self) -> logos_rust_sdk::Shutdown {
+        RECORDER_STOP.store(true, Ordering::SeqCst);
+        if RECORDER_RUNNING.load(Ordering::SeqCst) {
+            logos_rust_sdk::Shutdown::Asynchronous
+        } else {
+            logos_rust_sdk::Shutdown::Synchronous
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "Rust" fn logos_module_install() {
-    install::<UplinkModuleImpl>();
+    logos_install!(UplinkModuleImpl);
 }

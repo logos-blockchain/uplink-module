@@ -115,6 +115,14 @@ impl History for Indexer {
             .map_err(|e| format!("lez_indexer_module.getTransactionsByAccount: {e}"))?;
         if page.is_empty() { Err("lez_indexer_module: no answer (not running?)".into()) } else { Ok(page) }
     }
+
+    fn status(&self) -> PortResult<String> {
+        let status = modules()
+            .lez_indexer_module
+            .get_status_with_timeout(INDEXER_TIMEOUT)
+            .map_err(|e| format!("lez_indexer_module.getStatus: {e}"))?;
+        if status.is_empty() { Err("lez_indexer_module: not started".into()) } else { Ok(status) }
+    }
 }
 
 /// One JSON file in the module's data directory, replaced atomically.
@@ -123,8 +131,13 @@ pub struct FileStore {
 }
 
 impl FileStore {
+    /// The service's saved state.
     pub fn new(dir: &str) -> Self {
-        Self { path: PathBuf::from(dir).join("uplink_state.json") }
+        Self::named(dir, "uplink_state.json")
+    }
+
+    pub fn named(dir: &str, file: &str) -> Self {
+        Self { path: PathBuf::from(dir).join(file) }
     }
 }
 

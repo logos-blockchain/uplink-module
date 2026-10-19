@@ -59,14 +59,45 @@ fn settle(participant: &mut Participant, claim: &EpochClaim) -> Result<Points> {
         .map_err(|_| DomainError::new("rejected", format!("the program's rules reject a claim for epoch {}", claim.epoch)))
 }
 
-/// Plans every claimable epoch, batched. `published(epoch)` is the epoch's active set, or
-/// `None` if it was never published.
+/// What's known of a published epoch's active set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Known {
+    /// The whole set: enough to claim the epoch.
+    Full(BTreeSet<NodeId>),
+    /// Only which of `checked` were active: enough to tell what the epoch pays when the
+    /// claimant and all its children are among them, not to claim it.
+    Some { checked: BTreeSet<NodeId>, active: BTreeSet<NodeId> },
+}
+
+/// A published epoch: its archived digest and what's known of its set (`None`: nothing).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Published {
+    pub digest: [u8; 32],
+    pub known: Option<Known>,
+}
+
+impl Published {
+    pub fn full(active: BTreeSet<NodeId>) -> Self {
+        Self { digest: active_digest(&active), known: Some(Known::Full(active)) }
+    }
+}
+
+/// Every claimable epoch, batched, and the published epochs left out for want of their set:
+/// unknown, known only for other nodes than the claimant and its children, or paying
+/// something but known only in part (a claim must name the whole set).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Plan {
+    pub batches: Vec<Batch>,
+    pub missing: Vec<Epoch>,
+}
+
+/// Plans every claimable epoch. `published(epoch)` is `None` if the epoch was never published.
 pub fn plan(
     claimant: &Participant,
     current_epoch: Epoch,
     notes: Vec<(AccountId, State)>,
-    mut published: impl FnMut(Epoch) -> Result<Option<BTreeSet<NodeId>>>,
-) -> Result<Vec<Batch>> {
+    mut published: impl FnMut(Epoch) -> Result<Option<Published>>,
+) -> Result<Plan> {
     let notes = addressed_to(claimant.node, notes);
     let earliest = claimant
         .children
@@ -78,7 +109,7 @@ pub fn plan(
             _ => Epoch::MAX,
         }))
         .min();
-    let Some(earliest) = earliest else { return Ok(Vec::new()) };
+    let Some(earliest) = earliest else { return Ok(Plan::default()) };
 
     let (children, credits): (Vec<_>, Vec<_>) =
         notes.into_iter().partition(|(_, state)| matches!(state, State::Child { .. }));
@@ -90,12 +121,27 @@ pub fn plan(
     }
 
     let mut planned: Vec<EpochPlan> = Vec::new();
+    let mut missing = Vec::new();
     for epoch in earliest.max(1)..=current_epoch {
-        let Some(active) = published(epoch)? else { continue };
+        let Some(Published { digest, known }) = published(epoch)? else { continue };
+        let (active, full) = match known {
+            None => {
+                missing.push(epoch);
+                continue;
+            }
+            Some(Known::Full(active)) => (active, true),
+            Some(Known::Some { checked, active }) => {
+                // What the program pays depends on the claimant and its children only.
+                if !std::iter::once(&claimant.node).chain(simulated.children.keys()).all(|node| checked.contains(node)) {
+                    missing.push(epoch);
+                    continue;
+                }
+                (active, false)
+            }
+        };
         if !active.contains(&claimant.node) {
             continue;
         }
-        let digest = active_digest(&active);
         let (ids, states): (Vec<AccountId>, Vec<State>) = credits
             .iter()
             .filter(|(_, state)| {
@@ -104,14 +150,16 @@ pub fn plan(
             .cloned()
             .unzip();
         let total = settle(&mut simulated, &EpochClaim { epoch, active: active.clone(), notes: states, total: 0 })?;
-        if total > 0 {
-            planned.push(EpochPlan { epoch, active, notes: ids, total });
+        match (total > 0, full) {
+            (true, true) => planned.push(EpochPlan { epoch, active, notes: ids, total }),
+            (true, false) => missing.push(epoch),
+            (false, _) => {}
         }
     }
     if let Some(first) = planned.first_mut() {
         first.notes.splice(0..0, children.iter().map(|(id, _)| *id));
     }
-    Ok(batch(planned))
+    Ok(Plan { batches: batch(planned), missing })
 }
 
 /// Splits planned epochs, in order, into claims of at most [`MAX_CLAIM_EPOCHS`] epochs and
@@ -188,7 +236,7 @@ mod tests {
         let me = Participant::new(ME, None);
         let notes = vec![(AccountId::new([11; 32]), State::Child { node: A, referrer: ME, since: 2 })];
         let history = BTreeMap::from([(1, active(&[ME, A])), (2, active(&[ME, A])), (3, active(&[A])), (4, active(&[ME, A]))]);
-        let batches = plan(&me, 4, notes.clone(), |epoch| Ok(history.get(&epoch).cloned())).unwrap();
+        let batches = plan(&me, 4, notes.clone(), |epoch| Ok(history.get(&epoch).cloned().map(Published::full))).unwrap().batches;
 
         // Epoch 1 is before A registered; epoch 3 I wasn't active.
         assert_eq!(batches.len(), 1);
@@ -206,7 +254,7 @@ mod tests {
     fn already_settled_epochs_pay_nothing() {
         let mut me = Participant::new(ME, None);
         me.children.insert(A, vec![(0, 3)]);
-        let batches = plan(&me, 3, vec![], |_| Ok(Some(active(&[ME, A])))).unwrap();
+        let batches = plan(&me, 3, vec![], |_| Ok(Some(Published::full(active(&[ME, A]))))).unwrap().batches;
         assert!(batches.is_empty());
         assert_eq!(first_unsettled(&[(0, 3)]), 4);
         assert_eq!(first_unsettled(&[]), 1);
@@ -217,7 +265,7 @@ mod tests {
         let me = Participant::new(ME, None);
         let set = active(&[ME, B]);
         let credit = State::Credit { recipient_node: ME, amount: 4, epoch: 2, active_digest: active_digest(&set) };
-        let batches = plan(&me, 5, vec![(AccountId::new([12; 32]), credit)], |epoch| Ok((epoch == 2).then(|| set.clone()))).unwrap();
+        let batches = plan(&me, 5, vec![(AccountId::new([12; 32]), credit)], |epoch| Ok((epoch == 2).then(|| Published::full(set.clone())))).unwrap().batches;
         assert_eq!(total(&batches), 4);
         assert_eq!(batches[0][0].epoch, 2);
     }
@@ -229,6 +277,27 @@ mod tests {
             .collect();
         let batches = batch(planned);
         assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), vec![16, 4]);
+    }
+
+    #[test]
+    fn a_partial_set_tells_what_an_epoch_pays_but_only_a_full_one_claims_it() {
+        let mut me = Participant::new(ME, None);
+        me.children.insert(A, vec![(0, 0)]);
+        let some = |checked: &[NodeId], on: &[NodeId]| Published {
+            digest: [9; 32],
+            known: Some(Known::Some { checked: active(checked), active: active(on) }),
+        };
+        let plan = plan(&me, 4, vec![], |epoch| {
+            Ok(Some(match epoch {
+                1 => some(&[ME, A], &[ME]),         // pays nothing: settled without the set
+                2 => some(&[ME, A], &[ME, A]),      // pays 1: needs the set to claim
+                3 => some(&[ME], &[ME]),            // A unchecked: can't tell
+                _ => Published::full(active(&[ME, A])),
+            }))
+        })
+        .unwrap();
+        assert_eq!(plan.missing, vec![2, 3]);
+        assert_eq!(plan.batches.iter().flatten().map(|e| e.epoch).collect::<Vec<_>>(), vec![4]);
     }
 
     #[test]
