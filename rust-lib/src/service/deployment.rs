@@ -38,12 +38,12 @@ impl Service {
         Ok(json!({ "programAccount": codec::account_hex(&program), "imageId": program::image_id_hex(&self.binary.image_id()?) }))
     }
 
-    pub(super) fn verified_program(&mut self) -> Result<AccountId> {
+    /// The selected program account, if it runs this module's program. Checked on every call
+    /// (one small account read), so it's checked before every send: the wallet may have moved
+    /// to another network, or a mutable deployment may have changed, since the last one.
+    pub(super) fn verified_program(&self) -> Result<AccountId> {
         let program = self.program()?;
         let hex_id = codec::account_hex(&program);
-        if self.checked.as_deref() == Some(hex_id.as_str()) {
-            return Ok(program);
-        }
         let expected = self.binary.image_id()?;
         let account = self.lez.get_account_public(&hex_id).map_err(port)?;
         match program::deployed_image_id(&account)? {
@@ -59,10 +59,7 @@ impl Service {
                     program::image_id_hex(&expected)
                 ),
             )),
-            Some(_) => {
-                self.checked = Some(hex_id);
-                Ok(program)
-            }
+            Some(_) => Ok(program),
         }
     }
 
