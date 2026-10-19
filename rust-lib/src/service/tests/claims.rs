@@ -96,24 +96,18 @@ fn past_active_sets_come_from_the_indexer_and_are_checked_against_the_archive() 
     );
     world.set_registry(7, &[REFERRER, me], &[REFERRER, me]);
 
-    let publish = indexer_service_protocol::Transaction::Public(indexer_service_protocol::PublicTransaction {
-        hash: indexer_service_protocol::HashType([0; 32]),
-        message: indexer_service_protocol::PublicMessage {
-            program_account_id: indexer_service_protocol::AccountId { value: PROGRAM },
-            shard_selectors: vec![],
-            nonces: vec![],
-            instruction_data: borsh::to_vec(&Instruction::Publish { epoch: 1, active: old_active }).unwrap(),
-            fee: None,
-        },
-        witness_set: indexer_service_protocol::WitnessSet { signatures_and_public_keys: vec![], proof: None },
-    });
-    let history = FakeHistory(serde_json::to_string(&vec![publish]).unwrap());
+    let history = FakeHistory(publish_json(1, old_active));
 
-    assert_eq!(world.service().claimable(PARTICIPANT).unwrap_err().code, "history_needed");
+    let without = world.service().claimable(PARTICIPANT).unwrap();
+    assert_eq!(without["points"], "0");
+    assert_eq!((without["history"]["code"].clone(), without["history"]["missingEpochs"].clone()), (json!("history_needed"), json!([1])));
+    assert_eq!(without["history"]["indexer"]["state"], "NotRunning");
+
     let mut service = world.service_with(Some(Box::new(history)));
     let claimable = service.claimable(PARTICIPANT).unwrap();
     assert_eq!(claimable["points"], "4", "{claimable}");
     assert_eq!(claimable["batches"][0]["epochs"], json!([1]));
+    assert_eq!(claimable["history"], Value::Null);
 }
 
 #[test]
@@ -133,10 +127,59 @@ fn a_missing_indexer_is_asked_once_per_claim_and_fails_fast() {
 
     let calls = Rc::new(RefCell::new(0));
     let mut service = world.service_with(Some(Box::new(DeadIndexer(calls.clone()))));
-    assert_eq!(service.claimable(PARTICIPANT).unwrap_err().code, "history_needed");
+    assert_eq!(service.claimable(PARTICIPANT).unwrap()["history"]["missingEpochs"], json!([1, 2, 3]));
     assert_eq!(*calls.borrow(), 1, "one indexer call per claim, however many epochs are missing");
     assert_eq!(service.claim(&reference(7), PARTICIPANT).unwrap_err().code, "history_needed");
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "history_needed");
     assert!(world.sent().is_empty());
+}
+
+#[test]
+fn a_missing_epoch_does_not_hold_back_the_known_ones_and_is_paid_later() {
+    let world = World::new();
+    let me = enrolled(&world);
+    // Epoch 1 is known only to the indexer; epoch 2 is the live registry.
+    let unseen = BTreeSet::from([me, REFERRER]);
+    world.archive(1, &unseen);
+    world.add_note(0x61, State::Credit { recipient_node: me, amount: 5, epoch: 1, active_digest: active_digest(&unseen) });
+    let live = BTreeSet::from([me]);
+    world.set_registry(2, &[REFERRER, me], &[me]);
+    world.add_note(0x62, State::Credit { recipient_node: me, amount: 3, epoch: 2, active_digest: active_digest(&live) });
+
+    let mut service = world.service();
+    let claimable = service.claimable(PARTICIPANT).unwrap();
+    assert_eq!((claimable["points"].clone(), claimable["history"]["missingEpochs"].clone()), (json!("3"), json!([1])));
+    let first = service.claim(&reference(1), PARTICIPANT).unwrap();
+    assert_eq!(first["detail"]["epochs"], json!([2]), "the known epoch goes alone");
+
+    // It settles; then the indexer shows up with epoch 1, which is paid on its own.
+    world.lez.0.borrow_mut().settled = true;
+    service.status(&reference(1)).unwrap();
+    world.lez.0.borrow_mut().private.remove(&hex::encode([0x62; 32]));
+    let mut settled = Participant::new(me, Some(referrer()));
+    settled.reward_balance = 3;
+    world.set_participant(settled);
+    let mut service = world.service_with(Some(Box::new(FakeHistory(publish_json(1, unseen)))));
+    let later = service.claimable(PARTICIPANT).unwrap();
+    assert_eq!((later["points"].clone(), later["history"].clone()), (json!("5"), Value::Null));
+    assert_eq!(service.claim(&reference(2), PARTICIPANT).unwrap()["detail"]["epochs"], json!([1]));
+}
+
+#[test]
+fn an_indexer_still_catching_up_reads_as_syncing_not_as_lost() {
+    let world = World::new();
+    let me = enrolled(&world);
+    let unseen = BTreeSet::from([me, REFERRER]);
+    world.archive(1, &unseen);
+    world.add_note(0x61, State::Credit { recipient_node: me, amount: 5, epoch: 1, active_digest: active_digest(&unseen) });
+    world.set_registry(2, &[REFERRER, me], &[REFERRER]);
+
+    let mut service = world.service_with(Some(Box::new(SyncingHistory)));
+    let gap = service.claimable(PARTICIPANT).unwrap()["history"].clone();
+    assert_eq!(gap["code"], "history_syncing");
+    assert_eq!((gap["indexer"]["state"].clone(), gap["indexer"]["indexedBlock"].clone()), (json!("Syncing"), json!(12)));
+    assert_eq!(service.claim(&reference(1), PARTICIPANT).unwrap_err().code, "history_syncing");
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "history_syncing");
 }
 
 #[test]

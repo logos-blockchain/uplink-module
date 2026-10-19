@@ -64,6 +64,9 @@ pub trait Lez {
 pub trait History {
     /// A JSON array of transactions touching `account`, oldest first.
     fn transactions_by_account(&self, account: &str, offset: u64, limit: u64) -> PortResult<String>;
+    /// The indexer's status JSON (`{"state": "Syncing" | "CaughtUp" | …, "last_error",
+    /// "indexed_block_id", …}`, as `indexer_core` writes it).
+    fn status(&self) -> PortResult<String>;
 }
 
 /// The module's saved state, as one JSON document.

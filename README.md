@@ -63,17 +63,46 @@ instead of sending again.
 | `keystore_node(keystore_path)` | the node a keystore is for, from its public keys only |
 | `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`; a transaction no block includes within 100 blocks fails (a Register found on chain settles instead), so it can be retried |
 | `sync()` / `notes(participant)` | syncs the wallet / new referrals and credits |
-| `claimable(participant)` / `claim(reference, participant)` | points by batch / submits the oldest batch (≤16 epochs) |
+| `claimable(participant)` / `claim(reference, participant)` | points by batch, and `history` (below) / submits the oldest batch (≤16 epochs) |
 | `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll. A failed batch is retried under the same reference after 10, 20, 40, … (up to 640) blocks: `{skipped: "backoff", retryAtBlock}` meanwhile |
 | `cash_out(reference, participant, keystore_path)` | the CashOut operation (whole balance) |
 | `receipts(participant, keystore_path)` | receipts; with `""` the ones already known, without reading the key |
 | `payout_code(participant, index, keystore_path)` | the signed `uplink-payout-v2:` code |
 
-Epochs can be claimed late: each published epoch is archived on-chain, and each child is
-paid once per epoch whenever it's claimed. The archive holds only a digest of each epoch's
-active set: the module learns the set itself live, or from `lez_indexer_module` (checked
-against the digest). Without either, those claims fail with `history_needed`. Invitation
-codes are `uplink-invite-v1:` + base64url of the inviter's node and its participant's public
+### Claim history
+
+Epochs can be claimed late, and in any order: each published epoch is archived on-chain,
+and each child is paid once per epoch whenever it's claimed. But the archive holds only a
+digest of each epoch's active set, and a claim must name the set itself (the program checks
+it against the digest). The module learns each set live, while the epoch is current, or
+reads it from `lez_indexer_module` (checked against the digest).
+
+An epoch whose set it has neither doesn't hold up the others: they're claimed, and it's
+reported in `claimable`'s `history` as `{code, missingEpochs, indexer: {state,
+indexedBlock, error}}`:
+
+- `history_syncing`: the indexer is running but still catching up. The epochs will come.
+- `history_needed`: no indexer is running (or it failed). Start `lez_indexer_module`; in
+  Basecamp, from the LEZ Explorer app.
+
+`claim` fails with the same code only when those epochs are all there is to claim, and
+`auto_claim` answers `{skipped: <code>, history}`. A fresh indexer replays the chain from
+genesis against your node, so it finds every past epoch, also after restoring a wallet on a
+new machine (this relies on nodes keeping all finalized blocks, as they do while they sync
+from genesis; a node bootstrapped from a checkpoint wouldn't have the epochs before it).
+
+From the command line, the indexer lives as long as the process that started it, so use
+`logosctl`'s daemon (the released CLI; `logoscore` exits after its calls):
+
+```bash
+logosctl daemon start --detach
+logosctl module load uplink_module          # with lez_core, and lez_indexer_module (optional deps)
+logosctl call lez_indexer_module start_indexer /abs/path/indexer_config.json
+logosctl call uplink_module claimable <participant>   # again until history is null
+logosctl call uplink_module claim <reference> <participant>
+```
+
+Invitation codes are `uplink-invite-v1:` + base64url of the inviter's node and its participant's public
 keys; the `uplink` CLI's invitation JSON is accepted too.
 
 ### From `logoscore`

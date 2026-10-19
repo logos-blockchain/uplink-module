@@ -16,6 +16,14 @@ use crate::ports::AccountEntry;
 /// The participant's notes, as `discover_notes` finds them.
 type Notes = Vec<(lee_core::account::AccountId, referral_core::State)>;
 
+struct ClaimPlan {
+    me: Participant,
+    batches: Vec<Batch>,
+    notes: Notes,
+    /// Published epochs whose active set isn't known yet, oldest first.
+    missing: Vec<u32>,
+}
+
 /// Blocks `auto_claim` waits before sending a batch again after its `attempts`-th failure:
 /// 10, 20, 40, … up to 640 (about 1-3 hours at LEZ's 5-15 s blocks).
 fn retry_wait(attempts: u32) -> i64 {
@@ -23,32 +31,46 @@ fn retry_wait(attempts: u32) -> i64 {
 }
 
 impl Service {
-    fn claim_plan(&mut self, participant: &str) -> Result<(Participant, Vec<Batch>, Notes)> {
+    /// Everything claimable now, batched, and the published epochs left out because their
+    /// active set isn't known (neither seen live nor found in the indexer). Those can be paid
+    /// later: the program settles epochs in any order, each once.
+    fn claim_plan(&mut self, participant: &str) -> Result<ClaimPlan> {
         let me = self.read_participant(participant)?;
         let registry = self.read_registry()?;
         let notes = self.discover_notes(participant, me.node)?;
         // A claim consumes the join notes, so their epochs are kept before it's built.
         self.remember_joins(participant, &notes)?;
         let mut lookup_error = None;
+        let mut missing = Vec::new();
+        let mut indexer_read = false;
         let batches = claims::plan(&me, registry.epoch, notes.clone(), |epoch| {
-            self.published_active(&registry, epoch).map_err(|e| {
-                lookup_error = Some(e.clone());
-                e
-            })
+            match self.published_active(&registry, epoch, &mut indexer_read) {
+                Err(e) if e.code == "history_needed" => {
+                    missing.push(epoch);
+                    Ok(None)
+                }
+                result => result.map_err(|e| {
+                    lookup_error = Some(e.clone());
+                    e
+                }),
+            }
         });
         let batches = batches.map_err(|e| lookup_error.unwrap_or(e))?;
-        Ok((me, batches, notes))
+        Ok(ClaimPlan { me, batches, notes, missing })
     }
 
+    /// The points claimable now, by batch, and `history`: `null`, or which published epochs
+    /// couldn't be counted and why (see `history_gap`).
     pub fn claimable(&mut self, participant: &str) -> Result<Value> {
         let participant = &participant_id(participant)?;
-        let (_, batches, _) = self.claim_plan(participant)?;
+        let plan = self.claim_plan(participant)?;
         Ok(json!({
-            "points": claims::total(&batches).to_string(),
-            "batches": batches.iter().map(|batch| json!({
+            "points": claims::total(&plan.batches).to_string(),
+            "batches": plan.batches.iter().map(|batch| json!({
                 "epochs": batch.iter().map(|e| e.epoch).collect::<Vec<_>>(),
                 "points": batch.iter().map(|e| e.total).sum::<u128>().to_string(),
             })).collect::<Vec<_>>(),
+            "history": self.history_gap(&plan.missing),
         }))
     }
 
@@ -59,11 +81,11 @@ impl Service {
             return Ok(existing);
         }
         self.require_no_other_open(participant, reference)?;
-        let (me, batches, notes) = self.claim_plan(participant)?;
-        let Some(batch) = batches.into_iter().next() else {
-            return Err(DomainError::new("nothing_to_claim", "nothing to claim"));
+        let plan = self.claim_plan(participant)?;
+        let Some(batch) = plan.batches.first() else {
+            return Err(self.nothing_claimable(&plan.missing));
         };
-        self.submit_batch(reference, participant, &me, &batch, &notes)
+        self.submit_batch(reference, participant, &plan.me, batch, &plan.notes)
     }
 
     fn submit_batch(&mut self, reference: &str, participant: &str, me: &Participant, batch: &Batch, notes: &Notes) -> Result<Value> {
@@ -103,9 +125,13 @@ impl Service {
         if self.open_operation(participant).is_some() {
             return Ok(json!({ "skipped": "in_flight" }));
         }
-        let (me, batches, notes) = self.claim_plan(participant)?;
-        let Some(batch) = batches.into_iter().next() else {
-            return Ok(json!({ "skipped": "nothing_to_claim" }));
+        let plan = self.claim_plan(participant)?;
+        let Some(batch) = plan.batches.first() else {
+            // Not an error on a poll: the gap closes when the indexer has the epochs.
+            return Ok(match self.history_gap(&plan.missing) {
+                Value::Null => json!({ "skipped": "nothing_to_claim" }),
+                gap => json!({ "skipped": gap["code"], "history": gap }),
+            });
         };
         let epochs: Vec<u8> = batch.iter().flat_map(|e| e.epoch.to_le_bytes()).collect();
         let reference = derived_reference(&[b"auto-claim", participant.as_bytes(), &epochs]);
@@ -115,19 +141,59 @@ impl Service {
                 return Ok(json!({ "skipped": "backoff", "reference": reference, "error": failed.error, "retryAtBlock": retry_at }));
             }
         }
-        self.submit_batch(&reference, participant, &me, &batch, &notes).map(|operation| json!({ "claimed": operation }))
+        self.submit_batch(&reference, participant, &plan.me, batch, &plan.notes).map(|operation| json!({ "claimed": operation }))
     }
 
     /// The active set of published `epoch`, checked against its archived publication account,
-    /// or `None` if the epoch was never published.
-    fn published_active(&mut self, registry: &Registry, epoch: u32) -> Result<Option<BTreeSet<NodeId>>> {
+    /// or `None` if the epoch was never published. Unknown sets fail with `history_needed`
+    /// after one read of the indexer per plan (`indexer_read`), however many are missing.
+    fn published_active(&mut self, registry: &Registry, epoch: u32, indexer_read: &mut bool) -> Result<Option<BTreeSet<NodeId>>> {
         let Some(digest) = self.archived_digest(epoch)? else { return Ok(None) };
         if let Some(active) = self.known_active(registry, epoch, digest) {
             return Ok(Some(active));
         }
-        self.fill_publications()?;
+        if !*indexer_read {
+            *indexer_read = true;
+            self.fill_publications()?;
+        }
         self.publication((epoch, digest)).map(Some).ok_or_else(|| {
             DomainError::new("history_needed", format!("epoch {epoch}'s active set needs lez_indexer_module"))
         })
+    }
+
+    /// Why `missing` epochs couldn't be counted, or `null` when none are missing:
+    /// - `history_syncing`: the indexer is still catching up; they'll come.
+    /// - `history_needed`: no indexer is running (or it failed, or it has caught up without
+    ///   them); start `lez_indexer_module`, e.g. from the LEZ Explorer app.
+    pub(super) fn history_gap(&self, missing: &[u32]) -> Value {
+        if missing.is_empty() {
+            return Value::Null;
+        }
+        let status = self.history.as_ref().and_then(|h| h.status().ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok());
+        let state = status.as_ref().and_then(|s| s["state"].as_str()).unwrap_or("NotRunning");
+        let code = if matches!(state, "Starting" | "Syncing") { "history_syncing" } else { "history_needed" };
+        json!({
+            "code": code,
+            "missingEpochs": missing,
+            "indexer": {
+                "state": state,
+                "indexedBlock": status.as_ref().map_or(Value::Null, |s| s["indexed_block_id"].clone()),
+                "error": status.as_ref().map_or(Value::Null, |s| s["last_error"].clone()),
+            },
+        })
+    }
+
+    /// The error for a claim with no batch: nothing to claim, or only epochs still unknown.
+    fn nothing_claimable(&self, missing: &[u32]) -> DomainError {
+        match self.history_gap(missing) {
+            Value::Null => DomainError::new("nothing_to_claim", "nothing to claim"),
+            gap if gap["code"] == "history_syncing" => {
+                DomainError::new("history_syncing", format!("the indexer is still catching up to epochs {missing:?}"))
+            }
+            _ => DomainError::new(
+                "history_needed",
+                format!("epochs {missing:?} need their active sets: start lez_indexer_module (the LEZ Explorer app)"),
+            ),
+        }
     }
 }
