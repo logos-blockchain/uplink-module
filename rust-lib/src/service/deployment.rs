@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::{Service, port, PROGRAM_ACCOUNT_ENV};
 use crate::domain::program;
-use crate::domain::{DomainError, Result, codec};
+use crate::domain::{DomainError, Result, codec, terms};
 
 impl Service {
     /// Selects the deployment by its program account (hex or base58); `""` clears it, back to
@@ -60,6 +60,7 @@ impl Service {
         json!({
             "programAccount": self.program_hex(),
             "deployments": self.saved.deployments.keys().collect::<Vec<_>>(),
+            "termsVersion": terms::version(),
         })
     }
 

@@ -2,12 +2,12 @@
 //! module's data directory, the filesystem and the clock.
 
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
 use crate::glue::modules;
-use crate::ports::{AccountEntry, Lez, PortResult, Store};
+use crate::ports::{AccountEntry, Clock, Lez, PortResult, Store};
 
 fn call<T, E: std::fmt::Display>(method: &str, result: Result<T, E>) -> PortResult<T> {
     result.map_err(|e| format!("lez_core.{method}: {e}"))
@@ -128,3 +128,10 @@ impl Store for FileStore {
     }
 }
 
+pub struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now_ms(&self) -> u64 {
+        SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or_default()
+    }
+}

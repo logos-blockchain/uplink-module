@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 use super::Service;
 use crate::domain::program::Binary;
 use crate::domain::codec;
-use crate::ports::{AccountEntry, Lez, PortResult, Store};
+use crate::ports::{AccountEntry, Clock, Lez, PortResult, Store};
 
 pub(super) const PROGRAM: [u8; 32] = [0x50; 32];
 pub(super) const IMAGE_ID: [u32; 8] = [7; 8];
@@ -103,6 +103,13 @@ impl Store for FakeStore {
     }
 }
 
+pub(super) struct FakeClock;
+impl Clock for FakeClock {
+    fn now_ms(&self) -> u64 {
+        1_000
+    }
+}
+
 pub(super) const REFERRER: NodeId = NodeId::new([8; 32]);
 
 pub(super) struct World {
@@ -133,6 +140,7 @@ impl World {
         let mut service = Service::new(
             Box::new(self.lez.clone()),
             Box::new(self.store.clone()),
+            Box::new(FakeClock),
             Binary::known(b"ELF", IMAGE_ID),
         );
         service.configure(&hex::encode(PROGRAM)).unwrap();
@@ -174,4 +182,9 @@ impl World {
 
 }
 
+pub(super) fn accept_terms(service: &mut Service) {
+    service.accept_terms(crate::domain::terms::version(), &crate::domain::terms::sha256()).unwrap();
+}
+
 mod deployment;
+mod terms;

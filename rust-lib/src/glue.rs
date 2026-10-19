@@ -4,7 +4,7 @@
 
 use serde_json::{Value, json};
 
-use crate::adapters::{FileStore, LezCore};
+use crate::adapters::{FileStore, LezCore, SystemClock};
 use crate::domain::DomainError;
 use crate::domain::program::Binary;
 use crate::service::Service;
@@ -17,6 +17,12 @@ pub trait UplinkModule: 'static {
     /// `{programAccount, imageId}` when the selected account runs this module's program;
     /// else `not_configured`, `program_not_deployed` or `program_mismatch`.
     fn check_program(&mut self) -> String;
+
+    /// The program's terms: `{version, lastUpdated, sections, sha256}`.
+    fn terms(&mut self) -> String;
+    fn terms_status(&mut self) -> String;
+    /// Accepts the current terms; `sha256` must be the one `terms()` returned.
+    fn accept_terms(&mut self, version: i64, sha256: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -52,6 +58,7 @@ impl UplinkModule for UplinkModuleImpl {
         self.service = Some(Service::new(
             Box::new(LezCore),
             Box::new(FileStore::new(&ctx.instance_persistence_path)),
+            Box::new(SystemClock),
             Binary::embedded(),
         ));
     }
@@ -64,6 +71,18 @@ impl UplinkModule for UplinkModuleImpl {
     }
     fn check_program(&mut self) -> String {
         self.with(|s| s.check_program())
+    }
+    fn terms(&mut self) -> String {
+        self.with(|s| Ok(s.terms()))
+    }
+    fn terms_status(&mut self) -> String {
+        self.with(|s| Ok(s.terms_status()))
+    }
+    fn accept_terms(&mut self, version: i64, sha256: String) -> String {
+        self.with(|s| match u32::try_from(version) {
+            Ok(version) => s.accept_terms(version, &sha256),
+            Err(_) => Err(DomainError::new("terms_changed", "these are not the current terms")),
+        })
     }
 }
 

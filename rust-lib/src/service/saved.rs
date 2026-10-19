@@ -13,12 +13,30 @@ pub struct Config {
     pub program_account: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TermsAcceptance {
+    pub version: u32,
+    pub sha256: String,
+    pub accepted_at_ms: u64,
+    /// Set when an enrolment binds the acceptance to a node.
+    pub node: Option<String>,
+}
+
 /// Everything kept for one deployment of the program. Each network (devnet, testnet, …)
 /// has its own program account, so its own section: epochs, invitations and operations
 /// from one network never mix with another's.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Deployment {
+    /// Accepted terms not yet bound to a node by an enrolment.
+    pub terms: Option<TermsAcceptance>,
+}
+
+impl Deployment {
+    pub const EMPTY: Self = Self {
+        terms: None,
+    };
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
