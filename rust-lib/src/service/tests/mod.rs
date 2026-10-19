@@ -140,7 +140,7 @@ impl Clock for FakeClock {
 }
 
 /// A caught-up indexer whose history is one page.
-pub(super) struct FakeHistory(String);
+pub(super) struct FakeHistory(pub(super) String);
 impl History for FakeHistory {
     fn transactions_by_account(&self, _: &str, offset: u64, _: u64) -> PortResult<String> {
         Ok(if offset == 0 { self.0.clone() } else { "[]".into() })
@@ -204,7 +204,7 @@ impl World {
         self.service_with(None)
     }
 
-    fn service_with(&self, history: Option<Box<dyn History>>) -> Service {
+    pub(super) fn service_with(&self, history: Option<Box<dyn History>>) -> Service {
         let mut service = self.started(history);
         service.configure(&hex::encode(PROGRAM)).unwrap();
         service

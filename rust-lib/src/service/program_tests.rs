@@ -11,7 +11,7 @@ use lee_core::program::{AccountMeta, PlanInput};
 use referral_core::{Effect, Instruction, NodeId, ORACLE_ACCOUNT_ID, ParticipantAuthorizationV1, State, epoch_account};
 use sha2::{Digest, Sha256};
 
-use super::tests::{PARTICIPANT, World, account_json, keys_json, node_key, program, reference};
+use super::tests::{FakeHistory, PARTICIPANT, World, account_json, keys_json, node_key, program, publish_json, reference};
 use crate::domain::invitation::Invitation;
 use crate::domain::keystore::NodeKey;
 use crate::domain::{codec, terms};
@@ -227,4 +227,48 @@ fn the_program_rejects_a_claim_built_against_the_wrong_publication() {
         (epoch_account(program(), 1), false, Home::Public, None),
     ];
     assert!(world.execute(accounts, tampered).is_err());
+}
+
+#[test]
+fn an_epoch_learned_late_is_claimed_after_a_later_one_and_the_program_pays_it() {
+    let world = World::empty();
+    let mut service = world.service();
+    let me = node_key().node();
+    service.accept_terms(terms::version(), &terms::sha256()).unwrap();
+    service.enrol(&reference(1), PARTICIPANT, "/node/keystore.yaml", &codec::node_hex(&me)).unwrap();
+    world.settle_last().expect("the program accepts our Register");
+    let child = world.register_other(3, Some((me, keys_json(0x11))));
+
+    // Epoch 1 is published while the module isn't looking; epoch 2 it sees live.
+    world.publish(1, &[me, child]);
+    world.publish(2, &[me, child]);
+    service.registry().unwrap();
+    let claimable = service.claimable(PARTICIPANT).unwrap();
+    assert_eq!((claimable["points"].clone(), claimable["history"]["missingEpochs"].clone()), (serde_json::json!("1"), serde_json::json!([1])));
+
+    // Epoch 2 alone, first.
+    assert_eq!(service.claim(&reference(2), PARTICIPANT).unwrap()["detail"]["epochs"], serde_json::json!([2]));
+    world.settle_last().expect("the program accepts a claim that skips epoch 1");
+    assert_eq!(world.balance(), 1);
+
+    // An indexer supplies epoch 1; it's claimed after 2, and the program pays it.
+    let mut service = world.service_with(Some(Box::new(FakeHistory(publish_json(1, BTreeSet::from([me, child]))))));
+    let claimable = service.claimable(PARTICIPANT).unwrap();
+    assert_eq!((claimable["points"].clone(), claimable["history"].clone()), (serde_json::json!("1"), serde_json::Value::Null));
+    assert_eq!(service.claim(&reference(3), PARTICIPANT).unwrap()["detail"]["epochs"], serde_json::json!([1]));
+    world.settle_last().expect("the program accepts epoch 1 after epoch 2");
+    assert_eq!(world.balance(), 2);
+
+    // Each epoch paid once: nothing left, and the program refuses epoch 2 again.
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "nothing_to_claim");
+    let again = Instruction::Claim(referral_core::Claim {
+        epochs: vec![referral_core::EpochClaim { epoch: 2, active: BTreeSet::from([me, child]), notes: vec![], total: 1 }],
+        referrer: None,
+    });
+    let accounts = vec![
+        (codec::account(PARTICIPANT).unwrap(), true, Home::Wallet, None),
+        (epoch_account(program(), 2), false, Home::Public, None),
+    ];
+    assert!(world.execute(accounts, again).is_err());
+    assert_eq!(world.balance(), 2);
 }
