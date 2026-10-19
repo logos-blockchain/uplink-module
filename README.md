@@ -210,8 +210,10 @@ cd rust-lib && cargo test --no-default-features   # domain + service, no host ne
 nix build                                          # the module
 ```
 
-`cargo` needs `logos-rust-sdk-src` next to `rust-lib` (a symlink to `logos-rust-sdk`;
-`nix build` stages its own).
+`cargo` needs `logos-rust-sdk-src` next to `rust-lib`, a checkout (or symlink) of
+`logos-rust-sdk` at the revision in `flake.lock`, even with the module feature off; `nix
+build` stages its own. CI (`.github/workflows/ci.yml`) runs both on every PR: `nix build` on
+Linux and macOS, and the cargo tests on Linux.
 
 ## Pins
 

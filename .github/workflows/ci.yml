@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The module, as Basecamp and logoscore load it.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: cachix/cachix-action@v15
+        with:
+          name: logos-co
+          authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+      - name: Build module
+        run: nix build -L
+
+  # The crate's tests (domain, service, and the real referral program), without the host.
+  rust-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      # Cargo resolves the optional SDK dependency even with the feature off, so it needs
+      # a checkout next to rust-lib: the one the nix build uses, from flake.lock.
+      - name: Check out logos-rust-sdk at the flake.lock pin
+        run: |
+          rev=$(jq -r '.nodes["logos-rust-sdk"].locked.rev' flake.lock)
+          git clone --quiet https://github.com/logos-co/logos-rust-sdk logos-rust-sdk-src
+          git -C logos-rust-sdk-src checkout --quiet "$rev"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.0"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-lib
+      - name: Test
+        working-directory: rust-lib
+        run: cargo test --no-default-features --locked
