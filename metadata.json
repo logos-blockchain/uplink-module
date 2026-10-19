@@ -1,6 +1,6 @@
 {
   "name": "uplink_module",
-  "display_name": "Uplink",
+  "display_name": "Uplink Module",
   "version": "0.1.0",
   "description": "The Uplink node referral program (logos-blockchain/uplink) over LEZ: terms, enrolment, claims and cash-out, through lez_core.",
   "author": "Logos",
