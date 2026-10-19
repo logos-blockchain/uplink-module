@@ -7,6 +7,11 @@ use super::{Service, port, reference_id};
 use crate::domain::{DomainError, Result, codec};
 use crate::ports::AccountEntry;
 
+/// How many blocks a pending transaction may stay out of the chain before it counts as
+/// dropped. LEZ makes a block every 5-15 s, so this is about 8-25 minutes; including one
+/// takes a block or two.
+pub(super) const INCLUSION_BLOCKS: i64 = 100;
+
 impl Service {
     /// Records the operation, hands the transaction to `lez_core`, and records the result.
     /// A reference that is already open or settled returns its record instead of resending.
@@ -39,17 +44,21 @@ impl Service {
                 tx_hash: None,
                 error: None,
                 created_at_ms,
+                pending_since_block: None,
                 detail,
             },
         );
         self.persist()?;
 
         let reply = self.lez.send_private_transaction(&accounts, &instruction, self.binary.elf, &program_kind);
+        // Unknown if the read fails; the first status check then starts the count.
+        let height = self.lez.get_current_block_height().ok();
         let operation = self.deployment_mut()?.operations.get_mut(&reference).expect("just recorded");
         match reply.map(|reply| serde_json::from_str::<Value>(&reply).unwrap_or(Value::Null)) {
             Ok(reply) if reply.get("success").and_then(Value::as_bool) == Some(true) => {
                 operation.status = OperationStatus::Pending;
                 operation.tx_hash = reply.get("tx_hash").and_then(Value::as_str).map(str::to_owned);
+                operation.pending_since_block = height;
             }
             Ok(reply) => {
                 operation.status = OperationStatus::Failed;
@@ -108,7 +117,8 @@ impl Service {
             .find(|op| op.is_open() && op.participant.eq_ignore_ascii_case(participant))
     }
 
-    /// Settles a pending operation once its transaction is in.
+    /// Settles a pending operation once its transaction is in, or fails it once it has stayed
+    /// out for `INCLUSION_BLOCKS` (the sequencer dropped it), so the participant isn't blocked.
     pub fn status(&mut self, reference: &str) -> Result<Value> {
         let reference = reference_id(reference)?;
         let Some(operation) = self.deployment().operations.get(&reference).cloned() else {
@@ -118,6 +128,9 @@ impl Service {
             (OperationStatus::Pending, Some(tx_hash)) => self.lez.poll_transaction_status(tx_hash).map_err(port)?,
             _ => false,
         };
+        if !settled && operation.status == OperationStatus::Pending {
+            return self.check_dropped(&reference, &operation);
+        }
         if settled {
             self.deployment_mut()?.operations.get_mut(&reference).expect("exists").status = OperationStatus::Settled;
             if operation.kind == OperationKind::CashOut {
@@ -126,6 +139,33 @@ impl Service {
             self.persist()?;
         }
         Ok(operation_json(&self.deployment().operations[&reference]))
+    }
+
+    /// A pending transaction no block has included yet: starts or checks its deadline.
+    fn check_dropped(&mut self, reference: &str, operation: &Operation) -> Result<Value> {
+        let height = self.lez.get_current_block_height().map_err(port)?;
+        let Some(since) = operation.pending_since_block else {
+            // Recorded before the height was known (or by an older version): count from now.
+            self.deployment_mut()?.operations.get_mut(reference).expect("exists").pending_since_block = Some(height);
+            self.persist()?;
+            return Ok(operation_json(operation));
+        };
+        // A lower height means the chain was reset under the transaction.
+        if height >= since && height - since <= INCLUSION_BLOCKS {
+            return Ok(operation_json(operation));
+        }
+        // A Register can be found on chain without its transaction: the participant exists.
+        let landed = operation.kind == OperationKind::Register && self.read_participant(&operation.participant).is_ok();
+        let op = self.deployment_mut()?.operations.get_mut(reference).expect("exists");
+        if landed {
+            op.status = OperationStatus::Settled;
+        } else {
+            op.status = OperationStatus::Failed;
+            op.error = Some(format!("no block included it in {INCLUSION_BLOCKS} blocks; retry"));
+        }
+        let result = operation_json(op);
+        self.persist()?;
+        Ok(result)
     }
 
     pub fn operations(&self, participant: &str) -> Value {

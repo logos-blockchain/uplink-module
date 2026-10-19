@@ -43,6 +43,7 @@ pub(super) struct Chain {
     sent: Vec<(Vec<AccountEntry>, Vec<u8>)>,
     reply: Option<String>,
     pub(super) settled: bool,
+    pub(super) height: i64,
     created: u8,
 }
 
@@ -79,7 +80,7 @@ impl Lez for FakeLez {
         Ok(self.0.borrow().labels.get(label).cloned().unwrap_or_default())
     }
     fn get_current_block_height(&self) -> PortResult<i64> {
-        Ok(42)
+        Ok(self.0.borrow().height)
     }
     fn sync_to_block(&self, _: i64) -> PortResult<()> {
         Ok(())

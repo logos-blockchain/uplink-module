@@ -78,6 +78,10 @@ pub struct Operation {
     pub tx_hash: Option<String>,
     pub error: Option<String>,
     pub created_at_ms: u64,
+    /// The LEZ block height when `lez_core` accepted the transaction, to give up on it if no
+    /// block includes it (`operations::INCLUSION_BLOCKS`).
+    #[serde(default)]
+    pub pending_since_block: Option<i64>,
     /// Kind-specific facts, e.g. a cash-out's receipt index and points.
     #[serde(default)]
     pub detail: serde_json::Value,
