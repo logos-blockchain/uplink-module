@@ -29,6 +29,19 @@ pub trait UplinkModule: 'static {
     /// For each node (comma-separated hex), active in each of the last `count` published epochs:
     /// `{epochs: [..], nodes: {node: [1|0|-1, ..]}}`, oldest first; `-1` = unknown.
     fn activity(&mut self, nodes: String, count: i64) -> String;
+
+    /// A private LEZ account for the program, labelled so it can be found again.
+    fn create_participant(&mut self, label: String) -> String;
+    /// The participant carrying `label`, and whether it is registered.
+    fn find_participant(&mut self, label: String) -> String;
+    /// `{registered, node, referrer, children, childrenSince, rewardBalance}` from the chain.
+    fn participant(&mut self, participant: String) -> String;
+    /// The invitation code to give a node you invite.
+    fn invitation(&mut self, participant: String, node: String) -> String;
+    /// Reads a pasted invitation without saving it: `{referrer, registered}`.
+    fn check_invitation(&mut self, blob: String) -> String;
+    /// Saves an invitation you received; returns the referrer's node.
+    fn import_invitation(&mut self, participant: String, blob: String) -> String;
     fn on_context_ready(&mut self, _ctx: &RustModuleContext) {}
 }
 
@@ -98,6 +111,24 @@ impl UplinkModule for UplinkModuleImpl {
         let nodes: Vec<String> = nodes.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect();
         let count = u32::try_from(count.clamp(1, 64)).unwrap_or(16);
         self.with(|s| s.activity(&nodes, count))
+    }
+    fn create_participant(&mut self, label: String) -> String {
+        self.with(|s| s.create_participant(&label))
+    }
+    fn find_participant(&mut self, label: String) -> String {
+        self.with(|s| s.find_participant(&label))
+    }
+    fn participant(&mut self, participant: String) -> String {
+        self.with(|s| s.participant(&participant))
+    }
+    fn invitation(&mut self, participant: String, node: String) -> String {
+        self.with(|s| s.invitation(&participant, &node))
+    }
+    fn check_invitation(&mut self, blob: String) -> String {
+        self.with(|s| s.check_invitation(&blob))
+    }
+    fn import_invitation(&mut self, participant: String, blob: String) -> String {
+        self.with(|s| s.import_invitation(&participant, &blob))
     }
 }
 

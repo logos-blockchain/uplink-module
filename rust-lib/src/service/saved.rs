@@ -5,6 +5,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::domain::invitation::Invitation;
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
@@ -23,6 +25,12 @@ pub struct TermsAcceptance {
     pub node: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticipantRecord {
+    pub invitation: Option<Invitation>,
+}
+
 /// Everything kept for one deployment of the program. Each network (devnet, testnet, …)
 /// has its own program account, so its own section: epochs, invitations and operations
 /// from one network never mix with another's.
@@ -31,6 +39,7 @@ pub struct TermsAcceptance {
 pub struct Deployment {
     /// Accepted terms not yet bound to a node by an enrolment.
     pub terms: Option<TermsAcceptance>,
+    pub participants: BTreeMap<String, ParticipantRecord>,
     /// Every publication seen: `"<epoch>:<digest hex>"` → active nodes, hex.
     pub publications: BTreeMap<String, Vec<String>>,
     /// How far the indexer's history of the registry has been read.
@@ -40,6 +49,7 @@ pub struct Deployment {
 impl Deployment {
     pub const EMPTY: Self = Self {
         terms: None,
+        participants: BTreeMap::new(),
         publications: BTreeMap::new(),
         history_offset: 0,
     };

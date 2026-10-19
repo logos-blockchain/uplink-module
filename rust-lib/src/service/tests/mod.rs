@@ -7,6 +7,7 @@ use referral_core::{NodeId, ORACLE_ACCOUNT_ID, Registry, State, active_digest, e
 use serde_json::{Value, json};
 
 use super::Service;
+use crate::domain::invitation::Invitation;
 use crate::domain::program::Binary;
 use crate::domain::codec;
 use crate::ports::{AccountEntry, Clock, History, Lez, PortResult, Store};
@@ -183,10 +184,15 @@ impl World {
 
 }
 
+pub(super) fn invitation_blob() -> String {
+    Invitation::from_keys(REFERRER, &keys_json(0x22)).unwrap().encode().unwrap()
+}
+
 pub(super) fn accept_terms(service: &mut Service) {
     service.accept_terms(crate::domain::terms::version(), &crate::domain::terms::sha256()).unwrap();
 }
 
 mod activity;
 mod deployment;
+mod participants;
 mod terms;

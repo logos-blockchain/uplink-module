@@ -3,6 +3,7 @@
 
 mod activity;
 mod deployment;
+mod participants;
 mod registry;
 pub mod saved;
 mod terms;
