@@ -44,6 +44,8 @@ pub(super) struct Chain {
     reply: Option<String>,
     pub(super) settled: bool,
     pub(super) height: i64,
+    /// lez_core too busy to answer the height (it serves one call at a time).
+    pub(super) height_unanswered: bool,
     /// Every public account read, in order.
     pub(super) public_reads: Vec<String>,
     created: u8,
@@ -84,7 +86,11 @@ impl Lez for FakeLez {
         Ok(self.0.borrow().labels.get(label).cloned().unwrap_or_default())
     }
     fn get_current_block_height(&self) -> PortResult<i64> {
-        Ok(self.0.borrow().height)
+        let chain = self.0.borrow();
+        if chain.height_unanswered {
+            return Err("lez_core.get_current_block_height: timed out after 20000ms".into());
+        }
+        Ok(chain.height)
     }
     fn sync_to_block(&self, _: i64) -> PortResult<()> {
         Ok(())
@@ -96,8 +102,8 @@ impl Lez for FakeLez {
         chain.sent.push((accounts.to_vec(), instruction.to_vec()));
         Ok(chain.reply.clone().unwrap_or_else(|| json!({ "success": true, "tx_hash": format!("tx{}", chain.sent.len()) }).to_string()))
     }
-    fn poll_transaction_status(&self, _: &str) -> PortResult<bool> {
-        Ok(self.0.borrow().settled)
+    fn transaction_included(&self, _: &str) -> bool {
+        self.0.borrow().settled
     }
 }
 

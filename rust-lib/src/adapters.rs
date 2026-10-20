@@ -94,8 +94,15 @@ impl Lez for LezCore {
         )
     }
 
-    fn poll_transaction_status(&self, tx_hash: &str) -> PortResult<bool> {
-        call("poll_transaction_status", modules().lez_core.poll_transaction_status(tx_hash))
+    /// Not lez_core's poll_transaction_status: that waits for the transaction (up to about 48 s,
+    /// holding the wallet's lock), so a status check outlived its 20 s deadline whenever the
+    /// transaction was late, and never ended for one the sequencer dropped. The indexer answers
+    /// at once, "" until it has the transaction.
+    fn transaction_included(&self, tx_hash: &str) -> bool {
+        modules()
+            .lez_indexer_module
+            .get_transaction_with_timeout(tx_hash, INDEXER_TIMEOUT)
+            .is_ok_and(|tx| !tx.is_empty())
     }
 }
 

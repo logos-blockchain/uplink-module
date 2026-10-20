@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use super::saved::{Operation, OperationKind, OperationStatus};
-use super::{Service, participant_id, port, reference_id};
+use super::{Service, participant_id, reference_id};
 use crate::domain::{DomainError, Result, codec};
 use crate::ports::AccountEntry;
 
@@ -140,17 +140,17 @@ impl Service {
             .find(|op| op.is_open() && op.participant == participant)
     }
 
-    /// Settles a pending operation once its transaction is in, or fails it once it has stayed
-    /// out for `INCLUSION_BLOCKS` (the sequencer dropped it), so the participant isn't blocked.
+    /// Settles a pending operation once its transaction is in or the chain shows its outcome,
+    /// or fails it once it has stayed out for `INCLUSION_BLOCKS` (the sequencer dropped it), so
+    /// the participant isn't blocked. Never waits for the transaction.
     pub fn status(&mut self, reference: &str) -> Result<Value> {
         let reference = reference_id(reference)?;
         let Some(operation) = self.deployment().operations.get(&reference).cloned() else {
             return Err(DomainError::new("unknown_reference", "no operation with this reference"));
         };
-        let settled = match (&operation.status, &operation.tx_hash) {
-            (OperationStatus::Pending, Some(tx_hash)) => self.lez.poll_transaction_status(tx_hash).map_err(port)?,
-            _ => false,
-        };
+        let settled = operation.status == OperationStatus::Pending
+            && (operation.tx_hash.as_deref().is_some_and(|tx_hash| self.lez.transaction_included(tx_hash))
+                || self.landed(&operation));
         if !settled && operation.status == OperationStatus::Pending {
             return self.check_dropped(&reference, &operation);
         }
@@ -202,7 +202,10 @@ impl Service {
 
     /// A pending transaction no block has included yet: starts or checks its deadline.
     fn check_dropped(&mut self, reference: &str, operation: &Operation) -> Result<Value> {
-        let height = self.lez.get_current_block_height().map_err(port)?;
+        // lez_core busy (it answers one call at a time): still pending, checked again next time.
+        let Ok(height) = self.lez.get_current_block_height() else {
+            return Ok(operation_json(operation));
+        };
         let Some(since) = operation.pending_since_block else {
             // Recorded before the height was known (or by an older version): count from now.
             self.deployment_mut()?.operations.get_mut(reference).expect("exists").pending_since_block = Some(height);

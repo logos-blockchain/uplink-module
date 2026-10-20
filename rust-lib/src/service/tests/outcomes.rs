@@ -69,6 +69,30 @@ fn a_claim_past_its_deadline_that_landed_settles() {
 }
 
 #[test]
+fn a_pending_claim_settles_from_its_points_when_its_transaction_cant_be_looked_up() {
+    // No indexer has the transaction, but the balance shows the claim's points.
+    let world = World::new();
+    let me = claimable(&world, 5);
+    let mut service = world.service();
+    service.claim(&reference(1), PARTICIPANT).unwrap();
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "pending");
+    with_balance(&world, me, 6);
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "settled");
+}
+
+#[test]
+fn a_pending_claim_stays_pending_while_lez_core_is_too_busy_to_answer() {
+    // It used to be an error, so every auto-claim failed while lez_core was busy.
+    let world = World::new();
+    claimable(&world, 5);
+    let mut service = world.service();
+    service.claim(&reference(1), PARTICIPANT).unwrap();
+    world.lez.0.borrow_mut().height_unanswered = true;
+    assert_eq!(service.status(&reference(1)).unwrap()["status"], "pending");
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "in_flight");
+}
+
+#[test]
 fn a_claim_that_did_not_land_still_fails_and_is_retried() {
     let world = World::new();
     claimable(&world, 5);

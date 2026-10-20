@@ -57,7 +57,9 @@ pub trait Lez {
         program_elf: &[u8],
         program_kind_json: &str,
     ) -> PortResult<String>;
-    fn poll_transaction_status(&self, tx_hash: &str) -> PortResult<bool>;
+    /// Whether a block has included the transaction, answered at once: false when that can't
+    /// be told yet (no indexer, or it hasn't reached the block). Never waits.
+    fn transaction_included(&self, tx_hash: &str) -> bool;
 }
 
 /// The LEZ indexer (`lez_indexer_module`), for publications this module didn't see live.
