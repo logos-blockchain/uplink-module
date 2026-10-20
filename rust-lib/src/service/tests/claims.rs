@@ -165,6 +165,54 @@ fn a_missing_epoch_does_not_hold_back_the_known_ones_and_is_paid_later() {
     assert_eq!(service.claim(&reference(2), PARTICIPANT).unwrap()["detail"]["epochs"], json!([1]));
 }
 
+/// An indexer in `state`, with nothing for the module.
+struct IndexerIn(&'static str, Option<&'static str>);
+impl History for IndexerIn {
+    fn transactions_by_account(&self, _: &str, _: u64, _: u64) -> PortResult<String> {
+        Ok("[]".into())
+    }
+    fn status(&self) -> PortResult<String> {
+        Ok(json!({ "state": self.0, "last_error": self.1, "indexed_block_id": 375 }).to_string())
+    }
+}
+
+/// A participant with a credit for epoch 1, whose active set the module hasn't got.
+fn missing_epoch_1(world: &World) {
+    let me = enrolled(world);
+    let unseen = BTreeSet::from([me, REFERRER]);
+    world.archive(1, &unseen);
+    world.add_note(0x61, State::Credit { recipient_node: me, amount: 5, epoch: 1, active_digest: active_digest(&unseen) });
+    world.set_registry(2, &[REFERRER, me], &[REFERRER]);
+}
+
+#[test]
+fn a_caught_up_indexer_without_the_epochs_is_not_told_to_start() {
+    // It used to read as history_needed ("start the indexer") although one was running:
+    // e.g. one following another chain's channel.
+    let world = World::new();
+    missing_epoch_1(&world);
+    let mut service = world.service_with(Some(Box::new(IndexerIn("CaughtUp", None))));
+    let gap = service.claimable(PARTICIPANT).unwrap()["history"].clone();
+    assert_eq!((gap["code"].clone(), gap["indexer"]["state"].clone()), (json!("history_missing"), json!("CaughtUp")));
+    let refused = service.claim(&reference(1), PARTICIPANT).unwrap_err();
+    assert_eq!(refused.code, "history_missing");
+    assert!(refused.message.contains("channel"), "{}", refused.message);
+    assert_eq!(service.auto_claim(PARTICIPANT).unwrap()["skipped"], "history_missing");
+}
+
+#[test]
+fn an_indexer_in_trouble_says_so() {
+    for (state, error) in [("Error", Some("bedrock unreachable")), ("Stalled", None), ("SomethingNew", None)] {
+        let world = World::new();
+        missing_epoch_1(&world);
+        let mut service = world.service_with(Some(Box::new(IndexerIn(state, error))));
+        assert_eq!(service.claimable(PARTICIPANT).unwrap()["history"]["code"], "history_indexer_error", "{state}");
+        let refused = service.claim(&reference(1), PARTICIPANT).unwrap_err();
+        assert_eq!(refused.code, "history_indexer_error");
+        assert!(refused.message.contains(error.unwrap_or(state)), "{}", refused.message);
+    }
+}
+
 #[test]
 fn an_indexer_still_catching_up_reads_as_syncing_not_as_lost() {
     let world = World::new();

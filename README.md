@@ -119,8 +119,11 @@ reported in `claimable`'s `history` as `{code, missingEpochs, pointsWaiting, ind
 epochs pay, so at least that much):
 
 - `history_syncing`: the indexer is running but still catching up. The epochs will come.
-- `history_needed`: no indexer is running (or it failed). Start `lez_indexer_module`; in
-  Basecamp, from the LEZ Explorer app.
+- `history_needed`: no indexer is answering. Start `lez_indexer_module`; in Basecamp, from
+  the LEZ Explorer app.
+- `history_missing`: the indexer has caught up and hasn't got them. It's following another
+  chain (check its Bedrock node and channel), or the node it reads lacks those blocks.
+- `history_indexer_error`: the indexer reports `Error` or `Stalled` (see `indexer.error`).
 
 `claim` fails with the same code only when those epochs are all there is to claim, and
 `auto_claim` answers `{skipped: <code>, history}`. A fresh indexer replays the chain from
