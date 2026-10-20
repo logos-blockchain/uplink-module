@@ -78,7 +78,7 @@ instead of sending again.
 | `enrol(reference, participant, keystore_path, node)` | the Register operation; `node` = the running node, so a keystore for another node is refused (`""` = the keystore's BlendSigning key) |
 | `enrolment_message(participant, node)` / `enrol_with_signature(reference, participant, node, signature)` | for signing elsewhere |
 | `keystore_node(keystore_path)` | the node a keystore is for, from its public keys only |
-| `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`; a transaction no block includes within 100 blocks fails (a Register found on chain settles instead), so it can be retried |
+| `status(reference)` / `operations(participant)` | `submitting` → `pending` → `settled`, or `failed`. Answers at once: a pending operation settles when the indexer has its transaction or the chain shows its outcome (registered, points added, receipt created); one still out after 100 blocks fails, so it can be retried |
 | `sync()` / `notes(participant)` | syncs the wallet / new referrals and credits |
 | `claimable(participant)` / `claim(reference, participant)` | points by batch, and `history` (below) / submits the oldest batch (≤16 epochs) |
 | `auto_claim(participant)` | claims one batch when nothing is pending; call it on every poll. A failed batch is retried under the same reference after 10, 20, 40, … (up to 640) blocks: `{skipped: "backoff", retryAtBlock}` meanwhile |
