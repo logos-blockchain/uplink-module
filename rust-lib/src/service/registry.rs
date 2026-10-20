@@ -113,6 +113,16 @@ impl Service {
     /// stopped, noting where every publication is. Keeps only the wanted sets. `true` when
     /// any was found.
     pub(super) fn fill_publications(&mut self, wanted: &[u32]) -> Result<bool> {
+        if self.history.is_none() {
+            return Ok(false);
+        }
+        let stale = self.lists().is_none_or(|l| l.history_format < super::lists::HISTORY_FORMAT);
+        if stale {
+            let target = self.lists_mut()?;
+            target.history_offset = 0;
+            target.indexed_at.clear();
+            target.history_format = super::lists::HISTORY_FORMAT;
+        }
         let Some(history) = &self.history else { return Ok(false) };
         const PAGE: u64 = 100;
         let program = self.program()?;

@@ -169,10 +169,14 @@ impl Service {
         self.submit_batch(&reference, participant, &plan.me, batch, &plan.notes).map(|operation| json!({ "claimed": operation }))
     }
 
-    /// Why `missing` epochs couldn't be counted, or `null` when none are missing:
-    /// - `history_syncing`: the indexer is still catching up; they'll come.
-    /// - `history_needed`: no indexer is running (or it failed, or it has caught up without
-    ///   them); start `lez_indexer_module`, e.g. from the LEZ Explorer app.
+    /// Why `missing` epochs couldn't be counted, or `null` when none are missing, from the
+    /// indexer's state:
+    /// - `history_syncing` (Starting, Syncing): it's catching up; they'll come.
+    /// - `history_needed` (no indexer answering): start `lez_indexer_module`, e.g. from the
+    ///   LEZ Explorer app.
+    /// - `history_missing` (CaughtUp): it has caught up and hasn't got them, so it's following
+    ///   another chain (its node or channel), or the node it reads lacks those blocks.
+    /// - `history_indexer_error` (Error, Stalled, or a state not known here): see `indexer.error`.
     /// `pointsWaiting` is a floor: what the module can already tell those epochs pay.
     pub(super) fn history_gap(&self, missing: &[u32], waiting: u128) -> Value {
         if missing.is_empty() {
@@ -180,7 +184,12 @@ impl Service {
         }
         let status = self.history.as_ref().and_then(|h| h.status().ok()).and_then(|s| serde_json::from_str::<Value>(&s).ok());
         let state = status.as_ref().and_then(|s| s["state"].as_str()).unwrap_or("NotRunning");
-        let code = if matches!(state, "Starting" | "Syncing") { "history_syncing" } else { "history_needed" };
+        let code = match state {
+            "Starting" | "Syncing" => "history_syncing",
+            "NotRunning" | "Stopped" => "history_needed",
+            "CaughtUp" => "history_missing",
+            _ => "history_indexer_error",
+        };
         json!({
             "code": code,
             "missingEpochs": missing,
@@ -195,15 +204,26 @@ impl Service {
 
     /// The error for a claim with no batch: nothing to claim, or only epochs still unknown.
     fn nothing_claimable(&self, missing: &[u32], waiting: u128) -> DomainError {
-        match self.history_gap(missing, waiting) {
-            Value::Null => DomainError::new("nothing_to_claim", "nothing to claim"),
-            gap if gap["code"] == "history_syncing" => {
-                DomainError::new("history_syncing", format!("the indexer is still catching up to epochs {missing:?}"))
-            }
-            _ => DomainError::new(
+        let gap = self.history_gap(missing, waiting);
+        let (code, message) = match gap["code"].as_str() {
+            None => ("nothing_to_claim", "nothing to claim".to_owned()),
+            Some("history_syncing") => ("history_syncing", format!("the indexer is still catching up to epochs {missing:?}")),
+            Some("history_missing") => (
+                "history_missing",
+                format!("the indexer has caught up without epochs {missing:?}: check it follows this chain (its node and channel)"),
+            ),
+            Some("history_indexer_error") => (
+                "history_indexer_error",
+                format!(
+                    "the indexer can't serve epochs {missing:?}: {}",
+                    gap["indexer"]["error"].as_str().or(gap["indexer"]["state"].as_str()).unwrap_or("unknown state")
+                ),
+            ),
+            Some(_) => (
                 "history_needed",
                 format!("epochs {missing:?} need their active sets: start lez_indexer_module (the LEZ Explorer app)"),
             ),
-        }
+        };
+        DomainError::new(code, message)
     }
 }
