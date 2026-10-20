@@ -1,6 +1,12 @@
 //! Old publications from the LEZ indexer: each `Publish` the oracle made, from
 //! `lez_indexer_module.getTransactionsByAccount(ORACLE_ACCOUNT_ID, …)`. Ported from
 //! uplink's wallet `published`.
+//!
+//! lez_indexer_module answers in its own JSON, not the indexer service's: a flat object per
+//! transaction, `{"type": "Public", "program_account_id": <base58>, "instruction_data": <hex>,
+//! …}`. Its privacy-preserving entries carry only counts, so a publication made in one can't
+//! be read from it; the oracle publishes in public transactions. The service's format is
+//! read too, as uplink's own tools get it.
 
 use std::collections::BTreeSet;
 
@@ -35,6 +41,22 @@ pub fn published(transaction: &Transaction, program: AccountId) -> Option<(u32, 
     }
 }
 
+/// The (epoch, active set) a lez_indexer_module entry published, if it is one of the
+/// program's `Publish`es.
+pub fn module_published(entry: &serde_json::Value, program: AccountId) -> Option<(u32, BTreeSet<NodeId>)> {
+    if entry["type"] != "Public" {
+        return None;
+    }
+    if entry["program_account_id"].as_str()?.parse::<AccountId>().ok()? != program {
+        return None;
+    }
+    let data = hex::decode(entry["instruction_data"].as_str()?).ok()?;
+    match borsh::from_slice(&data).ok()? {
+        Instruction::Publish { epoch, active } => Some((epoch, active)),
+        _ => None,
+    }
+}
+
 /// Every publication in a page of indexer JSON (an array of transactions), with its position
 /// in the page. Entries that don't parse are skipped, so a newer indexer's extra kinds don't
 /// break older pages.
@@ -45,8 +67,11 @@ pub fn page(json: &str, program: AccountId) -> (usize, Vec<(usize, u32, BTreeSet
     let found = entries
         .iter()
         .enumerate()
-        .filter_map(|(at, entry)| Some((at, serde_json::from_value::<Transaction>(entry.clone()).ok()?)))
-        .filter_map(|(at, transaction)| published(&transaction, program).map(|(epoch, active)| (at, epoch, active)))
+        .filter_map(|(at, entry)| {
+            module_published(entry, program)
+                .or_else(|| published(&serde_json::from_value::<Transaction>(entry.clone()).ok()?, program))
+                .map(|(epoch, active)| (at, epoch, active))
+        })
         .collect();
     (entries.len(), found)
 }
@@ -69,6 +94,30 @@ mod tests {
             },
             witness_set: WitnessSet { signatures_and_public_keys: vec![], proof: None },
         })
+    }
+
+    // An entry as lez_indexer_module returned it on uplink's devnet: the oracle publishing
+    // epoch 3 with no active nodes. History never filled before this format was read.
+    #[test]
+    fn reads_lez_indexer_modules_own_format() {
+        let program = "fnmC5mLF5LujgzVnPcNLXWH7WWkAEdGsq7DJpegrvg5";
+        let entry = serde_json::json!({
+            "type": "Public",
+            "hash": "7caa9cd5a3c30ecc4f46f95a3d067785aa85200253168432f8958b77004ffed3",
+            "program_account_id": program,
+            "accounts": [
+                { "account_id": "6YWUkiCsExdhHHUuFxNRRMjjXkcAdwu4jyB8EN89Bjpv", "program_account_id": program, "nonce": "0" },
+                { "account_id": "2dPXhuLG8sZghZU19N43vSKnAeQjQ2i44TcHXsNXLNgd", "program_account_id": program, "nonce": "0" }
+            ],
+            "instruction_data": "010300000000000000",
+            "signature_count": 1,
+            "fee": { "payer": "6YWUkiCsExdhHHUuFxNRRMjjXkcAdwu4jyB8EN89Bjpv", "gas_limit": "2000000", "tip": "0", "max_fee": "134400000" }
+        });
+        let other = serde_json::json!({ "type": "PrivacyPreserving", "hash": "00", "accounts": [], "private_actions_count": 1 });
+        let (count, found) = page(&serde_json::json!([other, entry]).to_string(), program.parse().unwrap());
+        assert_eq!(count, 2);
+        assert_eq!(found, vec![(1, 3, BTreeSet::new())]);
+        assert!(page(&serde_json::json!([entry]).to_string(), AccountId::new([9; 32])).1.is_empty(), "another program's");
     }
 
     #[test]

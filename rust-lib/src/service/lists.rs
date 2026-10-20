@@ -65,6 +65,10 @@ pub struct DeploymentLists {
     /// Where each epoch's publication is in that history.
     #[serde(default)]
     pub indexed_at: BTreeMap<u32, u64>,
+    /// How `history_offset` was reached (`HISTORY_FORMAT`). Earlier versions skipped every
+    /// publication lez_indexer_module returns, so an offset they saved is read again.
+    #[serde(default)]
+    pub history_format: u32,
     /// By epoch: which followed nodes were active.
     #[serde(default)]
     pub marks: BTreeMap<u32, Marks>,
@@ -83,6 +87,9 @@ pub struct Marks {
     pub checked: BTreeSet<String>,
     pub active: BTreeSet<String>,
 }
+
+/// The current way of reading the indexer's pages; see `DeploymentLists::history_format`.
+pub const HISTORY_FORMAT: u32 = 1;
 
 /// Epochs within this many of the registry's are kept whole whatever the plans say: a
 /// referral's join note or credit for them may still be on its way.

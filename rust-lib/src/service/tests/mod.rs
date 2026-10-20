@@ -318,19 +318,21 @@ pub(super) fn referrer_entry() -> AccountEntry {
 }
 
 /// A page of indexer history holding the oracle's `Publish` of `epoch`.
+/// A page with the oracle's `Publish` of `epoch`, as lez_indexer_module answers
+/// getTransactionsByAccount (its own JSON, see `domain::publication`).
 pub(super) fn publish_json(epoch: u32, active: BTreeSet<NodeId>) -> String {
-    let publish = indexer_service_protocol::Transaction::Public(indexer_service_protocol::PublicTransaction {
-        hash: indexer_service_protocol::HashType([0; 32]),
-        message: indexer_service_protocol::PublicMessage {
-            program_account_id: indexer_service_protocol::AccountId { value: PROGRAM },
-            shard_selectors: vec![],
-            nonces: vec![],
-            instruction_data: borsh::to_vec(&Instruction::Publish { epoch, active }).unwrap(),
-            fee: None,
-        },
-        witness_set: indexer_service_protocol::WitnessSet { signatures_and_public_keys: vec![], proof: None },
-    });
-    serde_json::to_string(&vec![publish]).unwrap()
+    let oracle = referral_core::ORACLE_ACCOUNT_ID.to_string();
+    let program = lee_core::account::AccountId::new(PROGRAM).to_string();
+    json!([{
+        "type": "Public",
+        "hash": hex::encode([0; 32]),
+        "program_account_id": program,
+        "accounts": [{ "account_id": oracle, "program_account_id": program, "nonce": "0" }],
+        "instruction_data": hex::encode(borsh::to_vec(&Instruction::Publish { epoch, active }).unwrap()),
+        "signature_count": 1,
+        "fee": { "payer": oracle, "gas_limit": "2000000", "tip": "0", "max_fee": "134400000" },
+    }])
+    .to_string()
 }
 
 /// An indexer that never answers, like one that isn't running.

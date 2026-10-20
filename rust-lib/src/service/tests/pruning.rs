@@ -27,6 +27,26 @@ fn publish_tx(epoch: u32, active: BTreeSet<NodeId>) -> String {
     page[0].to_string()
 }
 
+// An offset saved by a version that couldn't read lez_indexer_module's pages has gone past
+// publications it skipped: they're read again, from the start.
+#[test]
+fn history_read_by_an_older_version_is_read_again() {
+    let world = World::new();
+    let me = enrolled(&world);
+    let unseen = BTreeSet::from([me, REFERRER]);
+    world.archive(1, &unseen);
+    world.add_note(0x61, State::Credit { recipient_node: me, amount: 5, epoch: 1, active_digest: active_digest(&unseen) });
+    world.set_registry(2, &[REFERRER, me], &[REFERRER]);
+    let program = hex::encode(PROGRAM);
+    world.lists.save(&json!({ "deployments": { program: { "historyOffset": 158 } } }).to_string()).unwrap();
+
+    let calls = Rc::new(RefCell::new(Vec::new()));
+    let mut service = world.service_with(Some(Box::new(Recording(vec![publish_tx(1, unseen)], calls.clone()))));
+    let claimable = service.claimable(PARTICIPANT).unwrap();
+    assert_eq!((claimable["points"].clone(), claimable["history"].clone()), (json!("5"), Value::Null));
+    assert_eq!(calls.borrow().first().map(|c| c.0), Some(0), "read from the start");
+}
+
 #[test]
 fn a_set_is_dropped_once_its_epoch_is_claimed_and_its_activity_stays() {
     let world = World::new();
